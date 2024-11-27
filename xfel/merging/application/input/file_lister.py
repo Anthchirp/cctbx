@@ -6,7 +6,7 @@ import os
 from six.moves import UserDict
 
 import numpy as np
-from orderedset import OrderedSet
+from ordered_set import OrderedSet
 
 
 class StemLocator(UserDict):
