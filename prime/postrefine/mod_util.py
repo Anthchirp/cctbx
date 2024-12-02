@@ -551,7 +551,7 @@ class intensities_scaler(object):
       n_cols = int(math.ceil(len(params)/n_rows))
       num_bins = 10
       for i in range(len(params)-1):
-        tmp_params = params_array[:,i].astype(np.float)
+        tmp_params = params_array[:,i].astype(float)
         plt.subplot(n_rows,n_cols,i+1)
         plt.hist(tmp_params, num_bins, normed=0, facecolor='green', alpha=0.5)
         plt.ylabel('Frequencies')

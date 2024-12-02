@@ -22,7 +22,6 @@ from dials.util.options import ArgumentParser
 from libtbx.phil import parse
 from dxtbx.model.experiment_list import ExperimentListFactory
 from dials.array_family import flex
-import numpy as np
 from libtbx import easy_pickle
 from dxtbx.model.experiment_list import ExperimentList
 
@@ -508,7 +507,7 @@ class InMemScript(DialsProcessScript, DialsProcessorWithLogging):
     mpi_log_file_handle.close()
 
   def psana_mask_to_dials_mask(self, psana_mask):
-    if psana_mask.dtype == np.bool:
+    if psana_mask.dtype == bool:
       psana_mask = flex.bool(psana_mask)
     else:
       psana_mask = flex.bool(psana_mask == 1)
