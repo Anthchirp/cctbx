@@ -181,6 +181,14 @@ def exercise_levenberg_marquardt(non_linear_ls, plot=False):
     print("\\[Mu]=%s;" % iterations.mu_history.mathematica_form(), file=f)
     print("ListLogPlot[{g,\\[Mu]},Joined->True]", file=f)
     f.close()
+  non_linear_ls.restart()
+  iterations = normal_eqns_solving.levenberg_marquardt_iterations(
+    non_linear_ls,
+    track_all=True,
+    gradient_threshold=0,
+    step_threshold=0,
+    n_max_iterations=200)
+  assert iterations.n_iterations == 200
 
 def run():
   import sys
