@@ -2158,6 +2158,11 @@ def exercise_histogram():
   assert not show_diff(t.getvalue(), s.getvalue())
   assert l.n_out_of_slot_range() == 17
 
+  # treatment of data with NaN in - cctbx/cctbx_project#478
+  d = flex.log10(flex.double(range(-10, 100)) + 0.5)
+  h = flex.histogram(d, data_min=-10, data_max=10, n_slots=20)
+  assert h.slots()[0] == 0
+
 def exercise_weighted_histogram():
   x = flex.double(range(20))
   w = 0.5 * flex.double(range(20))
