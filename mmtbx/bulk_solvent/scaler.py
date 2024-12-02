@@ -388,6 +388,7 @@ class run(object):
     k_mask_bin_smooth = self.smooth(k_mask_bin)
     k_mask = self.populate_bin_to_individual_k_mask_linear_interpolation(
       k_mask_bin = k_mask_bin_smooth)
+    k_isotropic = self._k_isotropic_as_scale_k1(r_start=r_start,k_mask = k_mask)
 
     r_try = self.try_scale(k_mask = k_mask, k_isotropic = k_isotropic)
     if(r_try<r_start):
