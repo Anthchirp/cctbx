@@ -98,7 +98,7 @@ TQDM_VERSION = "4.23.4"
 PSUTIL_VERSION = "5.5.1"
 
 # HDF5
-BASE_HDF5_PKG_URL = "https://support.hdfgroup.org/ftp/HDF5/releases/hdf5-1.10/hdf5-1.10.5/src/"
+BASE_HDF5_PKG_URL = "https://support.hdfgroup.org/ftp/HDF5/releases/hdf5-1.10/hdf5-1.10.5/src"
 HDF5_PKG = "hdf5-1.10.5.tar.bz2"
 
 # GUI dependencies
