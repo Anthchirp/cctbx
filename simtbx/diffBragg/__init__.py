@@ -7,6 +7,10 @@ ext = boost.python.import_ext("simtbx_diffBragg_ext")
 import numpy as np
 from simtbx_diffBragg_ext import *
 
+import os
+if os.environ.get("DIFFBRAGG_USE_CUDA") is not None and os.environ.get("DIFFBRAGG_USE_KOKKOS") is not None:
+    raise RuntimeError("Only set one of DIFFBRAGG_USE_CUDA, DIFFBRAGG_USE_KOKKOS.")
+
 @bp.inject_into(ext.diffBragg)
 class _():
     def get_derivative_pixels(self, refine_id):
