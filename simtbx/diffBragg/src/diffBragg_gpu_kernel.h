@@ -75,6 +75,6 @@ __global__ void gpu_sum_over_steps(
         const int* __restrict__ data_freq, const bool* __restrict__ data_trusted,
         const int* __restrict__ FhklLinear_ASUid,
         const CUDAREAL* __restrict__ Fhkl_channels,
-        const CUDAREAL* __restrict__ Fhkl_scale, CUDAREAL* Fhkl_scale_deriv
-
+        const CUDAREAL* __restrict__ Fhkl_scale, CUDAREAL* Fhkl_scale_deriv,
+        bool gaussian_star_shape, bool square_shape
         );

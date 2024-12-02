@@ -1154,7 +1154,7 @@ printf("DEBUG: pythony_stolFbg[1]=(%g,%g)\n",nanoBragg.pythony_stolFbg[1][0],nan
 
   /* spindle angle phi step, in deg */
   static double get_phistep_deg(nanoBragg const& nanoBragg) {
-      return nanoBragg.phi0*RTD;;
+      return nanoBragg.phistep*RTD;;
   }
   static void   set_phistep_deg(nanoBragg& nanoBragg, double const& value) {
       nanoBragg.phistep = value/RTD;
@@ -1337,6 +1337,7 @@ printf("DEBUG: pythony_stolFbg[1]=(%g,%g)\n",nanoBragg.pythony_stolFbg[1][0],nan
       .value("Round",ROUND)
       .value("Gauss",GAUSS)
       .value("Gauss_argchk",GAUSS_ARGCHK)
+      .value("Gauss_star",GAUSS_STAR)
       .value("Tophat",TOPHAT)
       .value("Fiber",FIBER)
       .value("Unknown",UNKNOWN)
@@ -1862,6 +1863,10 @@ printf("DEBUG: pythony_stolFbg[1]=(%g,%g)\n",nanoBragg.pythony_stolFbg[1][0],nan
                      "random number seed for detector calibration error, keep the same for a given detector")
 
       /* noise generation parameters */
+      .add_property("fudge",
+                     make_getter(&nanoBragg::fudge,rbv()),
+                     make_setter(&nanoBragg::fudge,dcp()),
+                     "fudge factor on F_latt falloff (default=1)")
       .add_property("spot_scale",
                      make_getter(&nanoBragg::spot_scale,rbv()),
                      make_setter(&nanoBragg::spot_scale,dcp()),

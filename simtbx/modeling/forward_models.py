@@ -70,7 +70,7 @@ def model_spots_from_pandas(pandas_frame,  rois_per_panel=None,
                           symbol_override=None, quiet=False, reset_Bmatrix=False, nopolar=False,
                           force_no_detector_thickness=False, printout_pix=None, norm_by_nsource=False,
                           use_exascale_api=False, use_db=False, show_timings=False, perpixel_wavelen=False,
-                          det_thicksteps=None, from_pdb=None):
+                          det_thicksteps=None, from_pdb=None, mosaic_samples_override=None):
     if perpixel_wavelen and not use_db:
         raise NotImplementedError("to get perpixel wavelengths set use_db=True to use the diffBragg backend")
     if use_exascale_api:
@@ -196,6 +196,8 @@ def model_spots_from_pandas(pandas_frame,  rois_per_panel=None,
         mos_dom = 1
         if "num_mosaicity_samples" in list(df):
             mos_dom = int(df.num_mosaicity_samples.values[0])
+        if mosaic_samples_override is not None:
+            mos_dom = mosaic_samples_override
         eta_abc = df.eta_abc.values[0]
         LOGGER.debug("Num mos samples=%d, eta_abc=%f %f %f" % ((mos_dom,)+ eta_abc )  )
         LOGGER.debug("Num energy channels=%d" % len(energies))
@@ -244,7 +246,8 @@ def diffBragg_forward(CRYSTAL, DETECTOR, BEAM, Famp, energies, fluxes,
                       nopolar=False, diffuse_params=None, cuda=False,
                       show_timings=False,perpixel_wavelen=False,
                       det_thicksteps=None, eta_abc=None, Ncells_def=None,
-                      num_phi_steps=1, delta_phi=None, div_mrad=0, divsteps=0):
+                      num_phi_steps=1, delta_phi=None, div_mrad=0, divsteps=0,
+                      spindle_axis=(1,0,0)):
 
     if cuda:
         os.environ["DIFFBRAGG_USE_CUDA"] = "1"
@@ -308,7 +311,7 @@ def diffBragg_forward(CRYSTAL, DETECTOR, BEAM, Famp, energies, fluxes,
         S.D.diffuse_sigma = diffuse_params["sigma"]
 
     if delta_phi is not None:
-        utils.update_SIM_with_gonio(S, delta_phi=delta_phi, num_phi_steps=num_phi_steps )
+        utils.update_SIM_with_gonio(S, delta_phi=delta_phi, num_phi_steps=num_phi_steps, spindle_axis=spindle_axis)
     S.D.add_diffBragg_spots_full()
     if show_timings or LOGGER.level <= 10:
         S.D.show_timings()

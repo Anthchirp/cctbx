@@ -1967,7 +1967,7 @@ void diffBragg::add_diffBragg_spots(const af::shared<size_t>& panels_fasts_slows
     db_cryst.Nd = Nd;
     db_cryst.Ne = Ne;
     db_cryst.Nf = Nf;
-
+    db_cryst.xtal_shape = xtal_shape;
 
     db_beam.number_of_sources = sources;
     db_beam.source_X = source_X;

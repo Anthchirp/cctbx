@@ -24,7 +24,6 @@ db_tst_list = [
     "$D/diffBragg/tests/tst_diffBragg_update_dxtbx_geoms.py",
     "$D/diffBragg/tests/tst_diffBragg_deriv_rois.py",
     "$D/diffBragg/tests/tst_diffBragg_detdist_derivatives.py",
-    "$D/diffBragg/tests/tst_diffBragg_nanoBragg_congruency.py",
     "$D/diffBragg/tests/tst_diffBragg_ncells_property.py",
     "$D/diffBragg/tests/tst_diffBragg_ncells_offdiag_property.py",
     ["$D/diffBragg/tests/tst_diffBragg_ncells_offdiag_property.py", "--idx 1"],
@@ -75,6 +74,7 @@ tst_list_parallel = []
 tst_list = nb_tst_list
 if OPT.enable_cxx11 and sys.platform != 'win32':
   tst_list += db_tst_list+db_tst_list_nonCuda
+  tst_list += ["$D/tests/tst_api_congruency.py"]
 
 if OPT.enable_cuda:
   tst_list_parallel += [
@@ -109,6 +109,7 @@ if OPT.enable_kokkos:
       tst_list_parallel.append(par_tst)
 
     tst_list_parallel += db_tst_list_onlyCuda
+    tst_list_parallel += ["$D/tests/tst_api_congruency.py", "--kokkos"]
 
 def run():
   build_dir = libtbx.env.under_build("simtbx")

@@ -1,5 +1,6 @@
 #include <cstdio>
 #include "diffBraggKOKKOS.h"
+#include <simtbx/kokkos/kernel_math.h>
 #include <simtbx/diffBragg/src/diffuse_util_kokkos.h>
 
 void kokkos_sum_over_steps(
@@ -150,7 +151,9 @@ void kokkos_sum_over_steps(
     const vector_int_t FhklLinear_ASUid,
     const vector_int_t Fhkl_channels,
     const vector_cudareal_t Fhkl_scale,
-    vector_cudareal_t Fhkl_scale_deriv) {  // BEGIN GPU kernel
+    vector_cudareal_t Fhkl_scale_deriv,
+    bool gaussian_star_shape, bool square_shape
+    ) {  // BEGIN GPU kernel
 
     const KOKKOS_MAT3 Bmat_realspace = eig_B * 1e10;
     const KOKKOS_MAT3 eig_Otranspose = eig_O.transpose();
@@ -174,6 +177,9 @@ void kokkos_sum_over_steps(
     vector_cudareal_t dG_trace = vector_cudareal_t("dG_trace", 3);
     int num_laue_mats = 0;
     int dhh = 0, dkk = 0, dll = 0;
+    CUDAREAL gx = spindle_vec[0];
+    CUDAREAL gy = spindle_vec[1];
+    CUDAREAL gz = spindle_vec[2];
 
     Kokkos::View<KOKKOS_MAT3*[3]> UMATS_prime("UMATS_prime", mosaic_domains);
     Kokkos::View<KOKKOS_MAT3*[3]> UMATS_dbl_prime("UMATS_dbl_prime", mosaic_domains);
@@ -418,9 +424,24 @@ void kokkos_sum_over_steps(
 
                         // TODO rename
                         CUDAREAL texture_scale = _capture_fraction * _omega_pixel * sI;
+                        for (int _phi_tic=0; _phi_tic<phisteps; ++_phi_tic){
+                            KOKKOS_MAT3 Rphi;
+                            CUDAREAL phi = phi0 + phistep*_phi_tic;
+                            if (phi != 0){
+                                CUDAREAL c = cos(phi);
+                                CUDAREAL omc = 1-c;
+                                CUDAREAL s = sin(phi);
+                                Rphi = KOKKOS_MAT3{c + gx*gx*omc,    gx*gy*omc-gz*s,   gx*gz*omc+gy*s,
+                                                 gy*gx*omc + gz*s,   c + gy*gy*omc,   gy*gz*omc - gx*s,
+                                                 gz*gx*omc - gy*s,  gz*gy*omc + gx*s, c + gz*gz*omc};
+                            }
 
                         for (int _mos_tic = 0; _mos_tic < mosaic_domains; ++_mos_tic) {
-                            const KOKKOS_MAT3 UBO = Amatrices(_mos_tic);
+                            KOKKOS_MAT3 UBO = Amatrices(_mos_tic);
+                            if (phi != 0){
+                                KOKKOS_MAT3 Um = UMATS_RXYZ(_mos_tic);
+                                UBO = UBO*Um*Rphi.transpose()*Um.transpose();
+                            }
 
                             KOKKOS_VEC3 H_vec = UBO * q_vec;
                             CUDAREAL _h = H_vec[0];
@@ -436,15 +457,41 @@ void kokkos_sum_over_steps(
                             KOKKOS_VEC3 delta_H = H_vec - H0;
                             KOKKOS_VEC3 V = _NABC * delta_H;
                             CUDAREAL _hrad_sqr = V.length_sqr();
-                            CUDAREAL exparg = _hrad_sqr * C / 2;
-                            CUDAREAL I0 = 0;
-
-                            if (exparg < 35)
-                                if (no_Nabc_scale)
-                                    I0 = ::Kokkos::exp(-2 * exparg);
+                            CUDAREAL I0;
+                            if(square_shape){
+                                CUDAREAL F_latt = 1.0;
+                               if(Na>1)
+                                   F_latt *= sincg(M_PI*_h,Na);
+                               if(Nb>1)
+                                   F_latt *= sincg(M_PI*_k,Nb);
+                               if(Nc>1)
+                                   F_latt *= sincg(M_PI*_l,Nc);
+                               I0 = F_latt*F_latt;
+                            }
+                            else {
+                                CUDAREAL exparg;
+                                if (gaussian_star_shape){
+                                    // TODO can precompute xtal_size_sq to save time
+                                    KOKKOS_VEC3 A {UBO[0], UBO[1], UBO[2]};
+                                    KOKKOS_VEC3 B {UBO[3], UBO[4], UBO[5]};
+                                    KOKKOS_VEC3 C {UBO[6], UBO[7], UBO[8]};
+                                    CUDAREAL cell_vol = A.dot(B.cross(C));
+                                    CUDAREAL xtal_size_sq = pow(NABC_det*cell_vol, CUDAREAL(2)/CUDAREAL(3));
+                                    KOKKOS_MAT3 Ainv = UBO.inverse();
+                                    KOKKOS_VEC3 delta_Q = Ainv*delta_H;
+                                    CUDAREAL rad_star_sqr = delta_Q.dot(delta_Q)*xtal_size_sq;
+                                    exparg = rad_star_sqr*1.9*fudge ;
+                                }
                                 else
-                                    I0 = (NABC_det_sq) *
-                                            ::Kokkos::exp(-2 * exparg);
+                                    exparg = _hrad_sqr * C / 2;
+                                I0 = 0;
+                                if (exparg < 35)
+                                    if (no_Nabc_scale)
+                                        I0 = ::Kokkos::exp(-2 * exparg);
+                                    else
+                                        I0 = (NABC_det_sq) *
+                                                ::Kokkos::exp(-2 * exparg);
+                            }
 
                             // are we doing diffuse scattering
                             CUDAREAL step_diffuse_param[6] = {0, 0, 0, 0, 0, 0};
@@ -613,6 +660,8 @@ void kokkos_sum_over_steps(
                             KOKKOS_MAT3 UBOt;
                              if (refine_flag & (REFINE_UMAT | REFINE_ETA)) {
                                 UBOt = Amat_init;
+                                if (phi != 0)
+                                    UBOt = Rphi*UBOt;
                             }
                             if (refine_flag & REFINE_UMAT1) {
                                 const KOKKOS_VEC3 dV = UMATS_prime(_mos_tic, 0) * q_vec;
@@ -935,6 +984,7 @@ void kokkos_sum_over_steps(
                             } // end of printout if
 
                         } // end of mos_tic loop
+                      } // end of phi_tic loop
                     } // end of source loop
                 } // end of thick step loop
             } // end of fpos loop
@@ -1334,7 +1384,8 @@ void kokkos_sum_over_steps(
     const vector_int_t FhklLinear_ASUid,
     const vector_int_t Fhkl_channels,
     const vector_cudareal_t Fhkl_scale,
-    vector_cudareal_t Fhkl_scale_deriv) {  // BEGIN GPU kernel
+    vector_cudareal_t Fhkl_scale_deriv,
+    bool gaussian_star_shape, bool square_shape) {  // BEGIN GPU kernel
 
     const KOKKOS_MAT3 Bmat_realspace = eig_B * 1e10;
     const KOKKOS_MAT3 eig_Otranspose = eig_O.transpose();
@@ -1358,6 +1409,9 @@ void kokkos_sum_over_steps(
     vector_cudareal_t dG_trace = vector_cudareal_t("dG_trace", 3);
     int num_laue_mats = 0;
     int dhh = 0, dkk = 0, dll = 0;
+    CUDAREAL gx = spindle_vec[0];
+    CUDAREAL gy = spindle_vec[1];
+    CUDAREAL gz = spindle_vec[2];
 
     Kokkos::View<KOKKOS_MAT3*[3]> UMATS_prime("UMATS_prime", mosaic_domains);
     Kokkos::View<KOKKOS_MAT3*[3]> UMATS_dbl_prime("UMATS_dbl_prime", mosaic_domains);
@@ -1599,9 +1653,24 @@ void kokkos_sum_over_steps(
 
                         // TODO rename
                         CUDAREAL texture_scale = _capture_fraction * _omega_pixel * sI;
+                        for (int _phi_tic=0; _phi_tic<phisteps; ++_phi_tic){
+                            KOKKOS_MAT3 Rphi;
+                            CUDAREAL phi = phi0 + phistep*_phi_tic;
+                            if (phi != 0){
+                                CUDAREAL c = cos(phi);
+                                CUDAREAL omc = 1-c;
+                                CUDAREAL s = sin(phi);
+                                Rphi = KOKKOS_MAT3{c + gx*gx*omc,    gx*gy*omc-gz*s,   gx*gz*omc+gy*s,
+                                                 gy*gx*omc + gz*s,   c + gy*gy*omc,   gy*gz*omc - gx*s,
+                                                 gz*gx*omc - gy*s,  gz*gy*omc + gx*s, c + gz*gz*omc};
+                            }
 
                         for (int _mos_tic = 0; _mos_tic < mosaic_domains; ++_mos_tic) {
-                            const KOKKOS_MAT3 UBO = Amatrices(_mos_tic);
+                            KOKKOS_MAT3 UBO = Amatrices(_mos_tic);
+                            if (phi != 0){
+                                KOKKOS_MAT3 Um = UMATS_RXYZ(_mos_tic);
+                                UBO = UBO*Um*Rphi.transpose()*Um.transpose();
+                            }
 
                             KOKKOS_VEC3 H_vec = UBO * q_vec;
                             CUDAREAL _h = H_vec[0];
@@ -1617,15 +1686,42 @@ void kokkos_sum_over_steps(
                             KOKKOS_VEC3 delta_H = H_vec - H0;
                             KOKKOS_VEC3 V = _NABC * delta_H;
                             CUDAREAL _hrad_sqr = V.length_sqr();
-                            CUDAREAL exparg = _hrad_sqr * C / 2;
-                            CUDAREAL I0 = 0;
-
-                            if (exparg < 35)
-                                if (no_Nabc_scale)
-                                    I0 = ::Kokkos::exp(-2 * exparg);
+                            CUDAREAL I0=0;
+                            if(square_shape){
+                               CUDAREAL F_latt = 1.0;
+                               /* xtal is a paralelpiped */
+                               if(Na>1)
+                                   F_latt *= sincg(M_PI*_h,Na);
+                               if(Nb>1)
+                                   F_latt *= sincg(M_PI*_k,Nb);
+                               if(Nc>1)
+                                   F_latt *= sincg(M_PI*_l,Nc);
+                               I0 = F_latt*F_latt;
+                            }
+                            else{ // using a gaussian model
+                                CUDAREAL exparg;
+                                if (gaussian_star_shape){
+                                    // TODO: can precompute xtal_vol to save time ... but prob not necessary as gaussian star model only used for forward calc
+                                    KOKKOS_VEC3 A {UBO[0], UBO[1], UBO[2]};
+                                    KOKKOS_VEC3 B {UBO[3], UBO[4], UBO[5]};
+                                    KOKKOS_VEC3 C {UBO[6], UBO[7], UBO[8]};
+                                    CUDAREAL cell_vol = A.dot(B.cross(C));
+                                    CUDAREAL xtal_size_sq = pow(NABC_det*cell_vol, CUDAREAL(2)/CUDAREAL(3));
+                                    KOKKOS_MAT3 Ainv = UBO.inverse();
+                                    KOKKOS_VEC3 delta_Q = Ainv*delta_H;
+                                    CUDAREAL rad_star_sqr = delta_Q.dot(delta_Q)*xtal_size_sq;
+                                    exparg = rad_star_sqr*1.9*fudge ;
+                                }
                                 else
-                                    I0 = (NABC_det_sq) *
-                                            ::Kokkos::exp(-2 * exparg);
+                                    exparg = _hrad_sqr * C / 2;
+
+                                if (exparg < 35)
+                                    if (no_Nabc_scale)
+                                        I0 = ::Kokkos::exp(-2 * exparg);
+                                    else
+                                        I0 = (NABC_det_sq) *
+                                                ::Kokkos::exp(-2 * exparg);
+                            }
 
                             // are we doing diffuse scattering
                             CUDAREAL step_diffuse_param[6] = {0, 0, 0, 0, 0, 0};
@@ -1790,6 +1886,8 @@ void kokkos_sum_over_steps(
                             KOKKOS_MAT3 UBOt;
                              if (refine_flag & (REFINE_UMAT | REFINE_ETA)) {
                                 UBOt = Amat_init;
+                                if (phi != 0)
+                                    UBOt = Rphi*UBOt;
                             }
                             if (refine_flag & REFINE_UMAT1) {
                                 const KOKKOS_VEC3 dV = UMATS_prime(_mos_tic, 0) * q_vec;
@@ -2112,6 +2210,7 @@ void kokkos_sum_over_steps(
                             } // end of printout if
 
                         } // end of mos_tic loop
+                      } // end of phi_tic loop
                     } // end of source loop
                 } // end of thick step loop
             } // end of fpos loop
@@ -2506,4 +2605,5 @@ kokkos_sum_over_steps<
     const vector_int_t FhklLinear_ASUid,
     const vector_int_t Fhkl_channels,
     const vector_cudareal_t Fhkl_scale,
-    vector_cudareal_t Fhkl_scale_deriv);
+    vector_cudareal_t Fhkl_scale_deriv,
+    bool gaussian_star_shape, bool square_shape);

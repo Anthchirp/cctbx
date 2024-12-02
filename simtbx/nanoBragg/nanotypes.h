@@ -25,7 +25,7 @@ struct hklParams {
 };
 
 typedef enum { SAMPLE, BEAM } pivot;
-typedef enum { UNKNOWN, SQUARE, ROUND, GAUSS, GAUSS_ARGCHK, TOPHAT, FIBER } shapetype;
+typedef enum { UNKNOWN, SQUARE, ROUND, GAUSS, GAUSS_ARGCHK, TOPHAT, FIBER, GAUSS_STAR } shapetype;
 // GAUSS_ARGCHK provides a lightweight backdoor for efficient implementation of
 // the GAUSS shapetype in CUDA. Precaluates the argument of the exponential.
 typedef enum { CUSTOM, ADXV, MOSFLM, XDS, DIALS, DENZO } convention;

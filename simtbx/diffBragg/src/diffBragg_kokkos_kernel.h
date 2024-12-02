@@ -151,7 +151,8 @@ void kokkos_sum_over_steps(
     const vector_int_t FhklLinear_ASUid,
     const vector_int_t Fhkl_channels,
     const vector_cudareal_t Fhkl_scale,
-    vector_cudareal_t Fhkl_scale_deriv
+    vector_cudareal_t Fhkl_scale_deriv,
+    bool gaussian_star_shape, bool square_shape
 );
 
 template <
@@ -313,6 +314,7 @@ void kokkos_sum_over_steps(
     const vector_int_t FhklLinear_ASUid,
     const vector_int_t Fhkl_channels,
     const vector_cudareal_t Fhkl_scale,
-    vector_cudareal_t Fhkl_scale_deriv
+    vector_cudareal_t Fhkl_scale_deriv,
+    bool gaussian_star_shape, bool square_shape
 );
 #endif

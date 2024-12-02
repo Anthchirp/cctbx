@@ -2380,6 +2380,7 @@ nanoBragg::show_params()
     if(xtal_shape == SQUARE) printf("parallelpiped");
     if(xtal_shape == GAUSS ) printf("gaussian");
     if(xtal_shape == GAUSS_ARGCHK ) printf("gaussian_argchk");
+    if(xtal_shape == GAUSS_STAR ) printf("gaussian_star");
     if(xtal_shape == TOPHAT) printf("tophat-spot");
     printf(" xtal: %.1fx%.1fx%.1f cells\n",Na,Nb,Nc);
     printf("Unit Cell: %g %g %g %g %g %g\n", a_A[0],b_A[0],c_A[0],alpha*RTD,beta*RTD,gamma*RTD);
@@ -2672,6 +2673,15 @@ nanoBragg::add_nanoBragg_spots()
                                         double my_arg = hrad_sqr / 0.63 * fudge; // pre-calculate to check for no Bragg signal
                                         if (my_arg<35.){ F_latt = Na * Nb * Nc * exp(-(my_arg));}
                                         else { F_latt = 0.; } // not expected to give performance gain on optimized C++, only on GPU
+                                    }
+                                    if (xtal_shape == GAUSS_STAR){
+                                        double xtal_size_sq = pow(Na*Nb*Nc*V_cell, double(2)/double(3));
+                                        vec3 delta_H {h-h0, k-k0, l-l0};
+                                        mat3 At(a[1], a[2], a[3], b[1], b[2], b[3], c[1], c[2], c[3]);
+                                        mat3 Ainverse =  (1e10*At).inverse();
+                                        vec3 delta_Q = Ainverse*delta_H;
+                                        double rad_star_sqr = (delta_Q*delta_Q)*xtal_size_sq; // dot product
+                                        F_latt = Na*Nb*Nc*exp(-( rad_star_sqr*1.9*fudge ));
                                     }
 
                                     if(xtal_shape == TOPHAT)

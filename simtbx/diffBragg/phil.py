@@ -1319,6 +1319,9 @@ predictions {
     .help = diffbragg offers CUDA support via the DIFFBRAGG_USE_CUDA=1 environment variable specification
     .help = or openmp support using the OMP_NUM_THREADS flag
     .help = The exascale only uses CUDA (will raise error if CUDA is not confugured)
+  mosaic_samples_override = None
+    .type = int
+    .help = Specify the number of mosaic spread samples
 }
 """
 

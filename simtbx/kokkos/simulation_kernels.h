@@ -15,6 +15,7 @@ using simtbx::nanoBragg::SQUARE;
 using simtbx::nanoBragg::ROUND;
 using simtbx::nanoBragg::GAUSS;
 using simtbx::nanoBragg::GAUSS_ARGCHK;
+using simtbx::nanoBragg::GAUSS_STAR;
 using simtbx::nanoBragg::TOPHAT;
 
 void calc_CrystalOrientations(CUDAREAL phi0,
@@ -297,6 +298,18 @@ void kokkosSpotsKernel(int spixels, int fpixels, int roi_xmin, int roi_xmax,
                                                                         if (my_arg<35.){ F_latt = Na * Nb * Nc * exp(-(my_arg));
                                                                         } else { F_latt = 0.; } // warps coalesce when blocks of 32 pixels have no Bragg signal
                                                                 }
+                                                                if (xtal_shape == GAUSS_STAR){
+                                                                        mat3 At (a[0],a[1],a[2],
+                                                                                 b[0],b[1],b[2],
+                                                                                 c[0],c[1],c[2]);
+                                                                        vec3 delta_H {h-h0, k-k0, l-l0};
+                                                                        vec3 delta_Q = (1e10*At).inverse()*delta_H;
+                                                                        CUDAREAL Nvol=Na*Nb*Nc;
+                                                                        CUDAREAL xtal_size_sq = pow(Nvol*V_cell, double(2)/double(3));
+                                                                        CUDAREAL rad_star_sqr = delta_Q.dot(delta_Q)*xtal_size_sq;
+                                                                        F_latt = Nvol*exp(-( rad_star_sqr *1.9 * fudge ));
+                                                                }
+
                                                                 if (xtal_shape == TOPHAT) {
                                                                         // make a flat-top spot of same height and volume as square_xtal spots
                                                                         F_latt = Na * Nb * Nc * (hrad_sqr * fudge < 0.3969);

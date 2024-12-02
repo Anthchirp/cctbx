@@ -14,6 +14,12 @@
     #define CUDAREAL double
 #endif
 
+#include "simtbx/nanoBragg/nanotypes.h"
+using simtbx::nanoBragg::shapetype;
+using simtbx::nanoBragg::SQUARE;
+using simtbx::nanoBragg::GAUSS;
+using simtbx::nanoBragg::GAUSS_STAR;
+
 using image_type = std::vector<CUDAREAL>;
 typedef Eigen::Matrix<double,3,1> VEC3;
 typedef Eigen::Matrix<double,3,3> MAT3;
@@ -152,6 +158,7 @@ struct flags{
 };
 
 struct crystal{
+    shapetype xtal_shape = GAUSS;
     double Friedel_beta = 1e10; // restraint factor for Friedel pairs
     double Finit_beta = 1e10; // restraint factor for Friedel pairs
     std::vector<int> pos_inds; // indices of the positive Friedel mate

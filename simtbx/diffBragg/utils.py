@@ -837,6 +837,7 @@ def simulator_from_expt_and_params(expt, params=None):
 
     # create nanoBragg crystal
     crystal = NBcrystal(init_defaults=False)
+    crystal.xtal_shape = "gauss"
     crystal.isotropic_ncells = has_isotropic_ncells
     if params.simulator.crystal.rotXYZ_ucell is not None:
         rotXYZ = params.simulator.crystal.rotXYZ_ucell[:3]
@@ -902,7 +903,7 @@ def simulator_from_expt_and_params(expt, params=None):
     return SIM
 
 
-def update_SIM_with_gonio(SIM, params=None, delta_phi=None, num_phi_steps=5):
+def update_SIM_with_gonio(SIM, params=None, delta_phi=None, num_phi_steps=5, spindle_axis=(1,0,0)):
     """
 
     :param SIM: sim_data instance
@@ -918,9 +919,10 @@ def update_SIM_with_gonio(SIM, params=None, delta_phi=None, num_phi_steps=5):
         num_phi_steps = params.simulator.gonio.phi_steps
 
     if delta_phi is not None:
+        SIM.D.spindle_axis = spindle_axis
         SIM.D.phi_deg = 0
         SIM.D.osc_deg = delta_phi
-        SIM.D.phisteps = num_phi_steps
+        SIM.D.phisteps = int(num_phi_steps)
 
 
 def get_complex_fcalc_from_pdb(
