@@ -29,6 +29,7 @@ DIFFBRAGG_ATTRS = [
  'fluence',
  'flux',
  'has_anisotropic_mosaic_spread',
+ 'host_transfer',
  'interpolate',
  'isotropic_ncells',
  'lambda_coefficients',

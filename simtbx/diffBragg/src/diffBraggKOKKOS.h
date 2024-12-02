@@ -7,6 +7,7 @@
 
 #include "kokkostbx/kokkos_types.h"
 #include "kokkostbx/kokkos_utils.h"
+#include "kokkostbx/kokkos_dlpack.h"
 #include "simtbx/diffBragg/src/util.h"
 #include "simtbx/diffBragg/src/util_kokkos.h"
 #include "simtbx/diffBragg/src/diffBragg_refine_flag.h"
@@ -147,6 +148,29 @@ class diffBraggKOKKOS {
         cuda_flags& db_cu_flags,
         // diffBragg_kokkosPointers& kp,
         timer_variables& TIMERS);
+
+    DLManagedTensor* get_floatimage();
+    DLManagedTensor* get_wavelenimage();
+    DLManagedTensor* get_d_diffuse_gamma_images();
+    DLManagedTensor* get_d_diffuse_sigma_images();
+    DLManagedTensor* get_d_Umat_images();
+    DLManagedTensor* get_d2_Umat_images();
+    DLManagedTensor* get_d_Bmat_images();
+    DLManagedTensor* get_d2_Bmat_images();
+    DLManagedTensor* get_d_Ncells_images();
+    DLManagedTensor* get_d2_Ncells_images();
+    DLManagedTensor* get_d_fcell_images();
+    DLManagedTensor* get_d2_fcell_images();
+    DLManagedTensor* get_d_eta_images();
+    DLManagedTensor* get_d2_eta_images();
+    DLManagedTensor* get_d_lambda_images();
+    DLManagedTensor* get_d2_lambda_images();
+    DLManagedTensor* get_d_panel_rot_images();
+    DLManagedTensor* get_d2_panel_rot_images();
+    DLManagedTensor* get_d_panel_orig_images();
+    DLManagedTensor* get_d2_panel_orig_images();
+    DLManagedTensor* get_d_fp_fdp_images();
+    DLManagedTensor* get_Fhkl_scale_deriv();
 };
 
 #endif

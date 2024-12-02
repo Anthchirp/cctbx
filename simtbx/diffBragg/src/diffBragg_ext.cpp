@@ -4,6 +4,7 @@
 #include <simtbx/nanoBragg/nanoBragg.h>
 #include <iostream>
 #include <boost/python/numpy.hpp>
+#include <dlpack/dlpack.h>
 
 using namespace boost::python;
 namespace simtbx{
@@ -503,6 +504,19 @@ namespace boost_python { namespace {
         return boost::python::make_tuple(diffBragg.pythony_indices,diffBragg.pythony_amplitudes);
   }
 
+std::string kokkos_device() {
+  std::string backend = "cpu:0";
+#ifdef DIFFBRAGG_HAVE_KOKKOS
+  if (Kokkos::is_finalized() || !Kokkos::is_initialized()) {
+    return backend;
+  }
+#if defined(KOKKOS_ENABLE_CUDA) || defined(KOKKOS_ENABLE_HIP)
+  backend = "cuda:" + std::to_string( Kokkos::device_id() );
+#endif
+#endif
+  return backend;
+}
+
 #ifdef DIFFBRAGG_HAVE_KOKKOS
   void finalize_kokkos(){
     Kokkos::finalize();
@@ -512,6 +526,147 @@ namespace boost_python { namespace {
     Kokkos::initialize(Kokkos::InitializationSettings()
                            .set_device_id(dev));
   }
+
+  void PrintDLTensorParameters( PyObject* capsule ) {
+    auto tensor = static_cast<DLTensor*>(PyCapsule_GetPointer(capsule, "dltensor"));
+    if (tensor == nullptr) {
+        std::cerr << "The input DLTensor is null." << std::endl;
+        return;
+    }
+
+    // Print the number of dimensions.
+    std::cout << "Number of dimensions (ndim): " << tensor->ndim << std::endl;
+
+    // Print the shape of the tensor.
+    std::cout << "Shape: [";
+    for (int i = 0; i < tensor->ndim; ++i) {
+        std::cout << tensor->shape[i];
+        if (i < tensor->ndim - 1) {
+            std::cout << ", ";
+        }
+    }
+    std::cout << "]" << std::endl;
+
+    // Print the data type of the tensor.
+    std::cout << "Data type (dtype): ";
+    switch (tensor->dtype.code) {
+        case kDLInt: std::cout << "Int"; break;
+        case kDLUInt: std::cout << "UInt"; break;
+        case kDLFloat: std::cout << "Float"; break;
+        case kDLBfloat: std::cout << "BFloat"; break;
+        default: std::cout << "Unknown"; break;
+    }
+    std::cout << " (" << int(tensor->dtype.bits) << " bits, " << tensor->dtype.lanes << " lanes)" << std::endl;
+
+    // Print the device context (device type and device id).
+    std::cout << "Device context: ";
+    switch (tensor->device.device_type) {
+        case kDLCPU: std::cout << "CPU"; break;
+        case kDLCUDA: std::cout << "CUDA"; break;
+        case kDLCUDAHost: std::cout << "CUDA Host"; break;
+        case kDLOpenCL: std::cout << "OpenCL"; break;
+        case kDLVulkan: std::cout << "Vulkan"; break;
+        case kDLMetal: std::cout << "Metal"; break;
+        case kDLVPI: std::cout << "VPI"; break;
+        case kDLROCM: std::cout << "ROCM"; break;
+        default: std::cout << "Unknown"; break;
+    }
+    std::cout << ", Device ID: " << tensor->device.device_id << std::endl;
+
+    // Print the strides of the tensor, if available.
+    if (tensor->strides != nullptr) {
+        std::cout << "Strides: [";
+        for (int i = 0; i < tensor->ndim; ++i) {
+            std::cout << tensor->strides[i];
+            if (i < tensor->ndim - 1) {
+                std::cout << ", ";
+            }
+        }
+        std::cout << "]" << std::endl;
+    } else {
+        std::cout << "Strides: [Contiguous in memory]" << std::endl;
+    }
+
+    // Print the byte offset of the tensor data.
+    std::cout << "Byte Offset: " << tensor->byte_offset << std::endl;
+}
+
+void dlpack_destructor(PyObject* capsule) {
+  if (!PyCapsule_IsValid(capsule, "dltensor")) {
+    std::cout << "Muh0 " << PyCapsule_GetPointer(capsule, "used_dltensor") << std::endl;
+    return;
+  }
+
+  // If the capsule has not been used, we need to delete it
+  std::cout << "Muh1" << std::endl;
+  DLManagedTensor* dlpackTensor = static_cast<DLManagedTensor*>(PyCapsule_GetPointer(capsule, "dltensor"));
+  std::cout << "Muh2" << std::endl;
+  dlpackTensor->deleter(dlpackTensor);
+  std::cout << "Muh3" << std::endl;
+  delete dlpackTensor;
+  std::cout << "Muh4" << std::endl;
+}
+
+struct DLPackAPI {
+
+  double container[50];
+
+  PyObject* dlpack() {
+    // Get the Kokkos view size and dimensions
+    size_t numDims = 1;
+    int64_t* shape = new int64_t[numDims];
+    for (size_t i = 0; i < numDims; i++) {
+      shape[i] = 50;
+    }
+
+    // Create a DLPack tensor
+    DLManagedTensor* dlpackTensor = new DLManagedTensor;
+    dlpackTensor->dl_tensor.data = static_cast<void*>(&container);
+    dlpackTensor->dl_tensor.device.device_type = DLDeviceType::kDLCPU;
+    dlpackTensor->dl_tensor.device.device_id = 0;
+    dlpackTensor->dl_tensor.ndim = numDims;
+    dlpackTensor->dl_tensor.dtype = getDLPackDataType();
+    dlpackTensor->dl_tensor.shape = shape;
+    dlpackTensor->dl_tensor.strides = nullptr;
+    dlpackTensor->dl_tensor.byte_offset = 0;
+    dlpackTensor->manager_ctx = nullptr;
+    dlpackTensor->deleter = [](DLManagedTensor* tensor) {
+        std::cout << "Blob" << std::endl;
+        delete[] tensor->dl_tensor.shape;
+    };
+
+    // Create a PyCapsule with the DLPack tensor
+    PyObject* capsule = PyCapsule_New(dlpackTensor, "dltensor", dlpack_destructor);
+
+    return capsule;
+  }
+
+  DLDataType getDLPackDataType() {
+    DLDataType dtype;
+    dtype.code = kDLFloat;
+    dtype.bits = sizeof(double) * 8;
+    dtype.lanes = 1;
+    return dtype;
+  }
+
+  void print_hello() {
+    std::cout << "Hello Python!" << std::endl;
+  }
+
+  void print_container() {
+    std::cout << "C = [ ";
+    for (int i=0; i<50; i++) {
+      std::cout << container[i] << " ";
+    }
+    std::cout << "]" << std::endl;
+  }
+
+  boost::python::tuple dlpack_device() {
+    return boost::python::make_tuple(static_cast<int32_t>(DLDeviceType::kDLCPU), 0);
+  }
+
+  };
+
 #endif
 
   void diffBragg_init_module() {
@@ -529,7 +684,22 @@ namespace boost_python { namespace {
 
     def("initialize_kokkos", initialize_kokkos,
         "the sole argument `dev` (an int from 0 to Ngpu-1) is passed to Kokkos::initialize()");
+
+    def("kokkos_device", kokkos_device, "returns kokkos device for use in PyTorch");
+
+    def("print_dlpack",PrintDLTensorParameters,"Print information about a dlpack");
+
+    // def("get_d_Ncells_images", &get_dlpack, "Return DLPackTensor for d_Ncells_images; pot. on GPU")
+
+    class_<DLPackAPI>("KokkosViewToDLPack", no_init)
+      .def(init("DLPack init"))
+      .def("__dlpack__", &DLPackAPI::dlpack, "Part of DLPack API")
+      .def("__dlpack_device__", &DLPackAPI::dlpack_device, "Part of DLPack API")
+      .def("hello", &DLPackAPI::print_hello, "Dummy test function")
+      .def("print", &DLPackAPI::print_container, "Print container")
+    ;
 #endif
+
 
     class_<simtbx::nanoBragg::diffBragg, bases<simtbx::nanoBragg::nanoBragg> >
             ("diffBragg", no_init)
@@ -578,7 +748,6 @@ namespace boost_python { namespace {
       .def("set_ncells_values", &simtbx::nanoBragg::diffBragg::set_ncells_values, "set Ncells values as a 3-tuple (Na, Nb, Nc)")
 
       .def("get_ncells_values", &simtbx::nanoBragg::diffBragg::get_ncells_values, "get Ncells values as a 3-tuple (Na, Nb, Nc)")
-
 
       .def("add_diffBragg_spots_full", &simtbx::nanoBragg::diffBragg::add_diffBragg_spots_full, "forward model and gradients at every pixel")
 
@@ -706,6 +875,11 @@ namespace boost_python { namespace {
                      make_getter(&simtbx::nanoBragg::diffBragg::oversample_omega,rbv()),
                      make_setter(&simtbx::nanoBragg::diffBragg::oversample_omega,dcp()),
                     "whether to use an average solid angle correction per pixel, or one at the sub pixel level")
+
+      .add_property("host_transfer",
+                     make_getter(&simtbx::nanoBragg::diffBragg::host_transfer,rbv()),
+                     make_setter(&simtbx::nanoBragg::diffBragg::host_transfer,dcp()),
+                    "whether to transfer results from device to host")
 
       .add_property("force_cpu",
                      make_getter(&simtbx::nanoBragg::diffBragg::force_cpu,rbv()),
@@ -937,6 +1111,52 @@ namespace boost_python { namespace {
                     make_function(&get_beams,rbv()),
                     make_function(&set_beams,dcp()),
                     "list of dxtbx::Beam objects corresponding to each zero-divergence and monochromatic x-ray point source in the numerical simulation ")
+
+#ifdef DIFFBRAGG_HAVE_KOKKOS
+      .def("get_floatimage", &simtbx::nanoBragg::diffBragg::get_floatimage, "get DLPackTensor for floatimage; pot. on GPU")
+
+      .def("get_wavelenimage", &simtbx::nanoBragg::diffBragg::get_wavelenimage, "get DLPackTensor for wavelenimage; pot. on GPU")
+
+      .def("get_d_diffuse_gamma_images", &simtbx::nanoBragg::diffBragg::get_d_diffuse_gamma_images, "get DLPackTensor for d_diffuse_gamma_images; pot. on GPU")
+
+      .def("get_d_diffuse_sigma_images", &simtbx::nanoBragg::diffBragg::get_d_diffuse_sigma_images, "get DLPackTensor for d_diffuse_sigma_images; pot. on GPU")
+
+      .def("get_d_Umat_images", &simtbx::nanoBragg::diffBragg::get_d_Umat_images, "get DLPackTensor for d_Umat_images; pot. on GPU")
+
+      .def("get_d2_Umat_images", &simtbx::nanoBragg::diffBragg::get_d2_Umat_images, "get DLPackTensor for d2_Umat_images; pot. on GPU")
+
+      .def("get_d_Bmat_images", &simtbx::nanoBragg::diffBragg::get_d_Bmat_images, "get DLPackTensor for d_Bmat_images; pot. on GPU")
+
+      .def("get_d2_Bmat_images", &simtbx::nanoBragg::diffBragg::get_d2_Bmat_images, "get DLPackTensor for d2_Bmat_images; pot. on GPU")
+
+      .def("get_d_Ncells_images", &simtbx::nanoBragg::diffBragg::get_d_Ncells_images, "get DLPackTensor for d_Ncells_images; pot. on GPU")
+
+      .def("get_d2_Ncells_images", &simtbx::nanoBragg::diffBragg::get_d2_Ncells_images, "get DLPackTensor for d2_Ncells_images; pot. on GPU")
+
+      .def("get_d_fcell_images", &simtbx::nanoBragg::diffBragg::get_d_fcell_images, "get DLPackTensor for d_fcell_images; pot. on GPU")
+
+      .def("get_d2_fcell_images", &simtbx::nanoBragg::diffBragg::get_d2_fcell_images, "get DLPackTensor for d2_fcell_images; pot. on GPU")
+
+      .def("get_d_eta_images", &simtbx::nanoBragg::diffBragg::get_d_eta_images, "get DLPackTensor for d_eta_images; pot. on GPU")
+
+      .def("get_d2_eta_images", &simtbx::nanoBragg::diffBragg::get_d2_eta_images, "get DLPackTensor for d2_eta_images; pot. on GPU")
+
+      .def("get_d_lambda_images", &simtbx::nanoBragg::diffBragg::get_d_lambda_images, "get DLPackTensor for d_lambda_images; pot. on GPU")
+
+      .def("get_d2_lambda_images", &simtbx::nanoBragg::diffBragg::get_d2_lambda_images, "get DLPackTensor for d2_lambda_images; pot. on GPU")
+
+      .def("get_d_panel_rot_images", &simtbx::nanoBragg::diffBragg::get_d_panel_rot_images, "get DLPackTensor for d_panel_rot_images; pot. on GPU")
+
+      .def("get_d2_panel_rot_images", &simtbx::nanoBragg::diffBragg::get_d2_panel_rot_images, "get DLPackTensor for d2_panel_rot_images; pot. on GPU")
+
+      .def("get_d_panel_orig_images", &simtbx::nanoBragg::diffBragg::get_d_panel_orig_images, "get DLPackTensor for d_panel_orig_images; pot. on GPU")
+
+      .def("get_d2_panel_orig_images", &simtbx::nanoBragg::diffBragg::get_d2_panel_orig_images, "get DLPackTensor for d2_panel_orig_images; pot. on GPU")
+
+      .def("get_d_fp_fdp_images", &simtbx::nanoBragg::diffBragg::get_d_fp_fdp_images, "get DLPackTensor for d_fp_fdp_images; pot. on GPU")
+
+      .def("get_Fhkl_scale_deriv", &simtbx::nanoBragg::diffBragg::get_Fhkl_scale_deriv, "get DLPackTensor for Fhkl_scale_deriv; pot. on GPU")
+#endif
 
     ; // end of diffBragg extention
 
