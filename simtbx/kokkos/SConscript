@@ -168,6 +168,10 @@ if not env_etc.no_boost_python:
   env_etc.include_registry.append(
     env=kokkos_ext_env,
     paths=env_etc.simtbx_common_includes + [env_etc.python_include])
+  if True: # same construct as above, temporarily accommodate the eigen library
+    env_etc.include_registry.append(
+    env=kokkos_ext_env,
+    paths=[env_etc.eigen_include])
   kokkos_ext_env.Replace(CXX=os.environ['CXX'])
   kokkos_ext_env.Replace(SHCXX=os.environ['CXX'])
   kokkos_ext_env.Replace(SHLINK=os.environ['CXX'])

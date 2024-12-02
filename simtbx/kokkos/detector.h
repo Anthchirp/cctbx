@@ -17,9 +17,11 @@
 #include "kokkostbx/kokkos_types.h"
 #include "kokkostbx/kokkos_vector3.h"
 #include "kokkostbx/kokkos_matrix3.h"
+#include "kokkostbx/kokkos_utils.h"
 
 using vec3 = kokkostbx::vector3<CUDAREAL>;
 using mat3 = kokkostbx::matrix3<CUDAREAL>;
+using Kokkos::fence;
 
 
 namespace simtbx { namespace Kokkos {
@@ -40,22 +42,26 @@ struct packed_metrology{
   af::shared<double>Ybeam;
 };
 
+struct large_array_policy {};
+struct small_whitelist_policy {};
+
+template <typename MemoryPolicy>
 struct kokkos_detector{
   inline kokkos_detector(){printf("NO OPERATION, DEVICE NUMBER IS NEEDED");};
-  kokkos_detector(int const&, const simtbx::nanoBragg::nanoBragg& nB);
-  kokkos_detector(int const&, dxtbx::model::Detector const &, dxtbx::model::Beam const &);
-  vector_double_t construct_detail(dxtbx::model::Detector const &);
+  //kokkos_detector(int const&, const simtbx::nanoBragg::nanoBragg& nB);
+  //kokkos_detector(int const&, dxtbx::model::Detector const &, dxtbx::model::Beam const &);
+  //vector_double_t construct_detail(dxtbx::model::Detector const &);
 
   inline void show_summary(){
     std::cout << "Detector size: " << m_panel_count << " panel" << ( (m_panel_count>1)? "s" : "" ) << std::endl;
     metrology.show();
   }
-  void each_image_allocate();
-  void scale_in_place(const double&);
-  void write_raw_pixels(simtbx::nanoBragg::nanoBragg&);
-  af::flex_double get_raw_pixels();
-  void set_active_pixels_on_GPU(af::shared<std::size_t>);
-  af::shared<double> get_whitelist_raw_pixels(af::shared<std::size_t>);
+  void each_image_allocate(const std::size_t&);
+  //void scale_in_place(const double&);
+  //void write_raw_pixels(simtbx::nanoBragg::nanoBragg&);
+  //af::flex_double get_raw_pixels();
+  //void set_active_pixels_on_GPU(af::shared<std::size_t>);
+  //af::shared<double> get_whitelist_raw_pixels(af::shared<std::size_t>);
   inline void each_image_free(){} //no op in Kokkos
   int h_deviceID;
 
@@ -99,8 +105,135 @@ struct kokkos_detector{
   af::shared<std::size_t> active_pixel_list;
   std::size_t m_active_pixel_size;
   vector_size_t m_active_pixel_list = vector_size_t("m_active_pixel_list", 0);
+
+  inline
+  kokkos_detector(int const& arg_device,
+                             const simtbx::nanoBragg::nanoBragg& nB):
+    h_deviceID(arg_device),
+    metrology(nB),
+    m_panel_count(1),
+    m_slow_dim_size(nB.spixels),
+    m_fast_dim_size(nB.fpixels),
+    m_total_pixel_count( m_panel_count * m_slow_dim_size * m_fast_dim_size ),
+    m_accumulate_floatimage( vector_double_t( "m_accumulate_floatimage", m_total_pixel_count) ) { }
+
+  inline
+  kokkos_detector(int const& arg_device,
+                             dxtbx::model::Detector const & arg_detector,
+                             dxtbx::model::Beam const& arg_beam):
+    h_deviceID(arg_device),
+    metrology(arg_detector, arg_beam),
+    m_panel_count( arg_detector.size() ),
+    m_slow_dim_size( arg_detector[0].get_image_size()[1] ),
+    m_fast_dim_size( arg_detector[0].get_image_size()[0] ),
+    m_total_pixel_count( m_panel_count * m_slow_dim_size * m_fast_dim_size ),
+    m_accumulate_floatimage( construct_detail(arg_detector) ) { }
+    // Easy mistake: not realizing that the dxtbx detector model stores (fast,slow) sizes
+
+  inline
+  vector_double_t
+  construct_detail(dxtbx::model::Detector const & arg_detector) {
+    //1) confirm the size
+    SCITBX_ASSERT( m_panel_count == arg_detector.size() );
+    SCITBX_ASSERT( m_panel_count >= 1 );
+
+    //2) confirm that array dimensions are similar for each size
+    for (int ipanel=1; ipanel < arg_detector.size(); ++ipanel){
+      SCITBX_ASSERT( arg_detector[ipanel].get_image_size()[1] == m_slow_dim_size );
+      SCITBX_ASSERT( arg_detector[ipanel].get_image_size()[0] == m_fast_dim_size );
+    }
+    // printf(" m_total_pixel_count: %d\n", m_total_pixel_count);
+    // printf("     m_slow_dim_size: %d\n", m_slow_dim_size);
+    // printf("     m_fast_dim_size: %d\n", m_fast_dim_size);
+    // printf("       m_panel_count: %d\n", m_panel_count);
+
+    //3) allocate a cuda array with these dimensions
+    // separate accumulator image outside the usual nanoBragg data structure.
+    //       1. accumulate contributions from a sequence of source energy channels computed separately
+    //       2. represent multiple panels, all same rectangular shape; slowest dimension = n_panels
+    vector_double_t view_floatimage( "m_accumulate_floatimage", m_total_pixel_count );
+    return view_floatimage;
+  };
+
+  inline void
+  scale_in_place(const double& factor){
+    auto local_accumulate_floatimage = m_accumulate_floatimage;
+    parallel_for("scale_in_place", range_policy(0,m_total_pixel_count), KOKKOS_LAMBDA (const int i) {
+      local_accumulate_floatimage( i ) = local_accumulate_floatimage( i ) * factor;
+    });
+  }
+
+  inline void
+  write_raw_pixels(simtbx::nanoBragg::nanoBragg& nB) {
+    //only implement the monolithic detector case, one panel
+    SCITBX_ASSERT(nB.spixels == m_slow_dim_size);
+    SCITBX_ASSERT(nB.fpixels == m_fast_dim_size);
+    SCITBX_ASSERT(m_panel_count == 1);
+    // nB.raw_pixels = af::flex_double(af::flex_grid<>(nB.spixels,nB.fpixels));
+    // do not reallocate CPU memory for the data write, as it is not needed
+
+    kokkostbx::transfer_kokkos2flex(nB.raw_pixels, m_accumulate_floatimage);
+    // vector_double_t::HostMirror host_floatimage = create_mirror_view(m_accumulate_floatimage);
+    // deep_copy(host_floatimage, m_accumulate_floatimage);
+
+    // printf(" m_total_pixel_count: %d\n", m_total_pixel_count);
+
+    // double * double_floatimage = nB.raw_pixels.begin();
+    // for (int i=0; i<m_total_pixel_count; ++i) {
+    //   double_floatimage[i] = host_floatimage( i );
+    // }
+  }
+
+  inline af::flex_double
+  get_raw_pixels(){
+    //return the data array for the multipanel detector case
+    af::flex_double output_array(af::flex_grid<>(m_panel_count,m_slow_dim_size,m_fast_dim_size), af::init_functor_null<double>());
+    kokkostbx::transfer_kokkos2flex(output_array, m_accumulate_floatimage);
+
+    // vector_double_t::HostMirror host_floatimage = create_mirror_view(m_accumulate_floatimage);
+    // deep_copy(host_floatimage, m_accumulate_floatimage);
+
+    // for (int i=0; i<m_total_pixel_count; ++i) {
+    //   output_array_ptr[ i ] = host_floatimage( i );
+    // }
+    return output_array;
+  }
+
+  inline void
+  set_active_pixels_on_GPU(af::shared<std::size_t> active_pixel_list_value) {
+    m_active_pixel_size = active_pixel_list_value.size();
+    kokkostbx::transfer_shared2kokkos(m_active_pixel_list, active_pixel_list_value);
+    active_pixel_list = active_pixel_list_value;
+  }
+
+  inline af::shared<double>
+  get_whitelist_raw_pixels(af::shared<std::size_t> selection) {
+    //printf("algorithm: %20s selection size %10d\n",hello().c_str(), selection.size());
+    //return the data array for the multipanel detector case, but only for whitelist pixels
+    vector_size_t active_pixel_selection = vector_size_t("active_pixel_selection", selection.size());
+    kokkostbx::transfer_shared2kokkos(active_pixel_selection, selection);
+
+    size_t output_pixel_size = selection.size();
+    vector_cudareal_t active_pixel_results = vector_cudareal_t("active_pixel_results", output_pixel_size);
+
+    auto temp = m_accumulate_floatimage;
+
+    parallel_for("get_active_pixel_selection",
+                  range_policy(0, output_pixel_size),
+                  KOKKOS_LAMBDA (const int i) {
+      size_t index = active_pixel_selection( i );
+      active_pixel_results( i ) = temp( index );
+    });
+
+    af::shared<double> output_array(output_pixel_size, af::init_functor_null<double>());
+    kokkostbx::transfer_kokkos2shared(output_array, active_pixel_results);
+
+    SCITBX_ASSERT(output_array.size() == output_pixel_size);
+    return output_array;
+  }
+
+  std::string hello();
 };
 } // Kokkos
 } // simtbx
 #endif // SIMTBX_KOKKOS_DETECTOR_H
-
