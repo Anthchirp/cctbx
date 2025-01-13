@@ -302,14 +302,15 @@ class reflection_filter(worker):
       fig, axes = plt.subplots(1, 1, figsize=(8, 3), sharex=True)
       axes.scatter(
         q2[inlier_indices], I_normalized[inlier_indices],
-        s=1, color=[0, 0, 0], marker='.', alpha=0.5
+        s=1, color=[0, 0, 0], marker='.', alpha=0.5, label='Inliers'
         )
       axes.scatter(
         q2[outlier_indices], I_normalized[outlier_indices],
-        s=20, color=[0.8, 0, 0], marker='.', alpha=1
+        s=20, color=[0.8, 0, 0], marker='.', alpha=1, label='Outliers'
         )
       axes.set_xlabel('$q^2$ = 1/$d^2$ (1/$\mathrm{\AA^2}$)')
-      axes.set_ylabel('Intensity')
+      axes.set_ylabel('Normalized Intensity')
+      axes.legend(frameon=False)
       fig.tight_layout()
       fig.savefig(os.path.join(
         self.params.output.output_dir,
@@ -342,7 +343,7 @@ class reflection_filter(worker):
         )
       axes[2].set_xlabel('$q^2$ = 1/$d^2$ (1/$\mathrm{\AA^2}$)')
       for i in range(3):
-        axes[i].set_ylabel('Intensity')
+        axes[i].set_ylabel('Normalized Intensity')
       fig.tight_layout()
       fig.savefig(os.path.join(
         self.params.output.output_dir,
