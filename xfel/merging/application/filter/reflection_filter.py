@@ -358,16 +358,18 @@ class reflection_filter(worker):
     if self.mpi_helper.rank == 0:
       sampling_fraction = self.params.select.reflection_filter.isolation_forest.sampling_fraction
       model_lower = IsolationForest(
-          contamination=self.params.select.reflection_filter.contamination_lower,
-          max_features=2,
-          max_samples=int(sampling_fraction*lower_tail.shape[0])
-          )
+        contamination=self.params.select.reflection_filter.contamination_lower,
+        max_features=2,
+        max_samples=int(sampling_fraction*lower_tail.shape[0]),
+        random_state=self.params.select.reflection_filter.isolation_forest.random_seed
+        )
       model_lower.fit(lower_tail)
       model_upper = IsolationForest(
-          contamination=self.params.select.reflection_filter.contamination_upper,
-          max_features=2,
-          max_samples=int(sampling_fraction*upper_tail.shape[0])
-          )
+        contamination=self.params.select.reflection_filter.contamination_upper,
+        max_features=2,
+        max_samples=int(sampling_fraction*upper_tail.shape[0]),
+        random_state=self.params.select.reflection_filter.isolation_forest.random_seed
+        )
       model_upper.fit(upper_tail)
     else:
       model_lower = None
@@ -390,7 +392,7 @@ class reflection_filter(worker):
       model_lower = LocalOutlierFactor(
         contamination=self.params.select.reflection_filter.contamination_lower,
         n_neighbors=self.params.select.reflection_filter.local_outlier_factor.n_neighbors,
-        novelty=True
+        novelty=True,
         )
       model_lower.fit(lower_tail)
       model_upper = LocalOutlierFactor(

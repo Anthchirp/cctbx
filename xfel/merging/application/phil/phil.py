@@ -396,6 +396,9 @@ select
       sampling_fraction = 0.05
         .type = float
         .help = Fraction of total dataset subsampled to train each decision tree.
+      random_seed = 0
+        .type = int
+        .help = seed for the random forest model
       }
     }
 }
