@@ -58,6 +58,8 @@ class QueueInterrogator(object):
       # running on NERSC's systems => jobs should be tracked using the _slurm_
       # submission tracker.
       self.command = "sacct --job %s --format state --noheader"
+    elif self.queueing_system == 'sfapi':
+      self.command = None
     elif self.queueing_system == 'htcondor':
       self.command1 = "condor_q %s -nobatch | grep -A 1 OWNER | tail -n 1"
       self.command2 = "condor_history %s | grep -A 1 OWNER | tail -n 1"
@@ -85,13 +87,26 @@ class QueueInterrogator(object):
       # zombie jobs can be left because the GUI process that forked them is still running
       if len(statuses) == 1 and statuses[0] == 'zombie': return "DONE"
       return ", ".join(statuses)
-    elif self.queueing_system == 'slurm' or self.queueing_system == "shifter":
+    elif self.queueing_system in ['slurm', 'shifter', 'sfapi']:
       # The current implementation of the shifter mp method assumes that we're
       # running on NERSC's systems => jobs should be tracked using the _slurm_
       # submission tracker.
-      result = easy_run.fully_buffered(command=self.command%submission_id)
-      if len(result.stdout_lines) == 0: return 'UNKWN'
-      status = result.stdout_lines[0].strip().rstrip('+')
+      if self.queueing_system in ['slurm', 'shifter']:
+        result = easy_run.fully_buffered(command=self.command%submission_id)
+        if len(result.stdout_lines) == 0: return 'UNKWN'
+        status = result.stdout_lines[0].strip().rstrip('+')
+
+      elif self.queueing_system == 'sfapi':
+        from sfapi_client         import Client
+        from sfapi_client.compute import Machine
+        from sfapi_client.jobs    import JobState
+        from xfel.util.sfapi_connector import KeyManager
+        km = KeyManager()
+        with Client(key=km.key) as client:
+          machine = client.compute(Machine.perlmutter) # TODO: this could be a setting
+          job = machine.job(submission_id)
+          status = job.state.name
+
       statuses = {'COMPLETED': 'DONE',
                   'COMPLETING': 'RUN',
                   'FAILED': 'EXIT',
@@ -104,6 +119,7 @@ class QueueInterrogator(object):
                   'TIMEOUT': 'TIMEOUT',
                  }
       return statuses[status] if status in statuses else 'UNKWN'
+
     elif self.queueing_system == 'htcondor':
       # (copied from the man page)
       # H = on hold, R = running, I = idle (waiting for a machine to execute on), C = completed,
@@ -161,7 +177,7 @@ class LogReader(object):
     self.queueing_system = queueing_system
     if self.queueing_system in ["mpi", "lsf", "pbs", "local", "sge"]:
       self.command = "tail -23 %s | head -1"
-    elif self.queueing_system in ["slurm", "shifter", "htcondor"]:
+    elif self.queueing_system in ["slurm", "shifter", "htcondor", "sfapi"]:
       pass # no log reader used
     else:
       raise NotImplementedError(
@@ -267,6 +283,9 @@ class TrackerFactory(object):
       # The current implementation of the shifter mp method assumes that we're
       # running on NERSC's systems => jobs should be tracked using the _slurm_
       # submission tracker.
+      return SlurmSubmissionTracker(params)
+    elif params.mp.method == 'sfapi':
+      # The SFAPI queue plugin pretends to be slurm
       return SlurmSubmissionTracker(params)
     elif params.mp.method == 'htcondor':
       return HTCondorSubmissionTracker(params)
