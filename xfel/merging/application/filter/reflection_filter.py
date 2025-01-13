@@ -52,12 +52,47 @@ class reflection_filter(worker):
     if (not filter_by_significance) and (not filter_by_isolation_forest) and (not filter_by_local_outlier_factor):
       return experiments, reflections
 
+    n_reflections_initial = len(reflections)
+    n_experiments_initial = len(experiments)
     if filter_by_significance:
       experiments, reflections = self.apply_significance_filter(experiments, reflections)
+      removed_reflections_significance_rank = n_reflections_initial - len(reflections)
+      removed_experiments_significance_rank = n_experiments_initial - len(experiments)
+      removed_reflections_significance = self.mpi_helper.comm.reduce(
+        removed_reflections_significance_rank, self.mpi_helper.MPI.SUM, root=0
+        )
+      removed_experiments_significance = self.mpi_helper.comm.reduce(
+        removed_experiments_significance_rank, self.mpi_helper.MPI.SUM, root=0
+        )
+      self.logger.log(f"Reflections rejected because of significant: {removed_reflections_significance_rank}")
+      self.logger.log(f"Experiments rejected because of significant: {removed_experiments_significance_rank}")
+      if self.mpi_helper.rank == 0:
+        self.logger.main_log(f"Total reflections rejected because of significant: {removed_reflections_significance}")
+        self.logger.main_log(f"Total experiments rejected because of significant: {removed_experiments_significance}")
     if filter_by_isolation_forest:
       experiments, reflections = self.apply_isolation_forest(experiments, reflections)
-    if filter_by_local_outlier_factor:
+      filter_type = 'Isolation Forest'
+    elif filter_by_local_outlier_factor:
       experiments, reflections = self.apply_local_outlier_factor(experiments, reflections)
+      filter_type = 'Local Outlier Factor'
+
+    if filter_by_isolation_forest or filter_by_local_outlier_factor:
+      removed_reflections_filter_rank = n_reflections_initial - len(reflections)
+      removed_experiments_filter_rank = n_experiments_initial - len(experiments)
+      if filter_by_significance:
+        removed_reflections_filter_rank -= removed_reflections_significance_rank
+        removed_experiments_filter_rank -= removed_experiments_significance_rank
+      removed_reflections_filter = self.mpi_helper.comm.reduce(
+        removed_reflections_filter_rank, self.mpi_helper.MPI.SUM, root=0
+        )
+      removed_experiments_filter = self.mpi_helper.comm.reduce(
+        removed_experiments_filter_rank, self.mpi_helper.MPI.SUM, root=0
+        )
+      self.logger.log(f"Reflections rejected because of {filter_type}: {removed_reflections_filter_rank}")
+      self.logger.log(f"Experiments rejected because of {filter_type}: {removed_experiments_filter_rank}")
+      if self.mpi_helper.rank == 0:
+        self.logger.main_log(f"Total reflections rejected because of {filter_type}: {removed_reflections_filter}")
+        self.logger.main_log(f"Total experiments rejected because of {filter_type}: {removed_experiments_filter}")
 
     from xfel.merging.application.utils.data_counter import data_counter
     data_counter(self.params).count(experiments, reflections)
@@ -165,25 +200,7 @@ class reflection_filter(worker):
       #if indices_to_edge is not None:
       #  print >> out, "Total preds %d to edge of detector"%indices_to_edge.size()
 
-    removed_reflections = len(reflections) - len(new_reflections)
-    removed_experiments = len(experiments) - len(new_experiments)
-
-    self.logger.log("Reflections rejected because of significance filter: %d"%removed_reflections)
-    self.logger.log("Experiments rejected because of significance filter: %d"%removed_experiments)
-
-    # MPI-reduce total counts
-    comm = self.mpi_helper.comm
-    MPI = self.mpi_helper.MPI
-    total_removed_reflections  = comm.reduce(removed_reflections, MPI.SUM, 0)
-    total_removed_experiments  = comm.reduce(removed_experiments, MPI.SUM, 0)
-
-    # rank 0: log total counts
-    if self.mpi_helper.rank == 0:
-      self.logger.main_log("Total reflections rejected because of significance filter: %d"%total_removed_reflections)
-      self.logger.main_log("Total experiments rejected because of significance filter: %d"%total_removed_experiments)
-
     self.logger.log_step_time("SIGNIFICANCE_FILTER", True)
-
     new_reflections.reset_ids()
     return new_experiments, new_reflections
 
@@ -453,28 +470,7 @@ class reflection_filter(worker):
         new_experiments.append(experiment)
         new_reflections.extend(new_exp_reflections)
 
-    removed_reflections = len(reflections) - len(new_reflections)
-    removed_experiments = len(experiments) - len(new_experiments)
-
-    total_removed_reflections = self.mpi_helper.comm.reduce(
-      removed_reflections, self.mpi_helper.MPI.SUM, root=0
-      )
-    total_removed_experiments = self.mpi_helper.comm.reduce(
-      removed_experiments, self.mpi_helper.MPI.SUM, root=0
-      )
     new_reflections.reset_ids()
-
-    self.logger.log(f"Reflections rejected because of {filter_type}: {removed_reflections}")
-    self.logger.log(f"Experiments rejected because of {filter_type}: {removed_experiments}")
-
-    # rank 0: log total counts
-    if self.mpi_helper.rank == 0:
-      self.logger.main_log(
-        f"Total reflections rejected because of {filter_type}: {total_removed_reflections}"
-        )
-      self.logger.main_log(
-        f"Total experiments rejected because of {filter_type}: {total_removed_experiments}"
-        )
     del new_reflections['q2']
     del new_reflections['intensity_normalized']
     del new_reflections['lower_tail_flag']
