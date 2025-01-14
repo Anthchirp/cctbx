@@ -8,6 +8,7 @@ from cctbx import miller
 from cctbx.crystal import symmetry
 from six.moves import cStringIO as StringIO
 import numpy as np
+import time
 
 
 class reflection_filter(worker):
@@ -116,7 +117,6 @@ class reflection_filter(worker):
     new_reflections = flex.reflection_table()
 
     kap = 'kapton_absorption_correction' in reflections
-
     for expt_id, experiment in enumerate(experiments):
       exp_reflections = reflections.select(reflections['id'] == expt_id)
       if not len(exp_reflections): continue
@@ -128,7 +128,6 @@ class reflection_filter(worker):
 
       # Ensure there is at least one bin.
       N_bins = max([min([self.params.select.significance_filter.n_bins,N_bins_small_set]), N_bins_large_set, 1])
-
       if kap:
         unattenuated = exp_reflections['kapton_absorption_correction'] == 1.0
         iterable = [exp_reflections.select(unattenuated), exp_reflections.select(~unattenuated)]
@@ -155,7 +154,9 @@ class reflection_filter(worker):
         assert exp_observations.size() == refls.size()
 
         out = StringIO()
+        ### !!! CRITICAL BOTTLENECK !!! ###
         bin_results = show_observations(exp_observations, out=out, n_bins=N_bins)
+        ### !!! CRITICAL BOTTLENECK !!! ###
 
         if self.params.output.log_level == 0:
           self.logger.log(out.getvalue())
@@ -204,8 +205,9 @@ class reflection_filter(worker):
     new_reflections.reset_ids()
     return new_experiments, new_reflections
 
-  def _common_initial(self, reflections):
-    reflections['q2'] = 1 / reflections['d']**2
+  def _common_initial(self, experiments, reflections):
+    resolution = reflections.compute_d(experiments)
+    reflections['q2'] = 1 / resolution**2
     q2_rank = reflections['q2'].as_numpy_array()
     intensity_rank = reflections['intensity.sum.value'].as_numpy_array()
 
@@ -327,7 +329,7 @@ class reflection_filter(worker):
         )
       axes.set_xlabel('$q^2$ = 1/$d^2$ (1/$\mathrm{\AA^2}$)')
       axes.set_ylabel('Normalized Intensity')
-      axes.legend(frameon=False)
+      axes.legend(frameon=False, loc='upper right')
       fig.tight_layout()
       fig.savefig(os.path.join(
         self.params.output.output_dir,
@@ -372,7 +374,7 @@ class reflection_filter(worker):
     self.logger.log_step_time("ISOLATION_FOREST")
     from sklearn.ensemble import IsolationForest
 
-    reflections, upper_tail, lower_tail = self._common_initial(reflections)
+    reflections, upper_tail, lower_tail = self._common_initial(experiments, reflections)
     if self.mpi_helper.rank == 0:
       sampling_fraction = self.params.select.reflection_filter.isolation_forest.sampling_fraction
       model_lower = IsolationForest(
@@ -405,7 +407,7 @@ class reflection_filter(worker):
     self.logger.log_step_time("LOCAL_OUTLIER_FACTOR")
     from sklearn.neighbors import LocalOutlierFactor
 
-    reflections, upper_tail, lower_tail = self._common_initial(reflections)
+    reflections, upper_tail, lower_tail = self._common_initial(experiments, reflections)
     if self.mpi_helper.rank == 0:
       model_lower = LocalOutlierFactor(
         contamination=self.params.select.reflection_filter.contamination_lower,
@@ -434,7 +436,6 @@ class reflection_filter(worker):
     model_lower = self.mpi_helper.comm.bcast(model_lower, root=0)
     model_upper = self.mpi_helper.comm.bcast(model_upper, root=0)
 
-    inlier = np.ones(len(reflections), dtype=bool)
     lower_tail_indices = reflections['lower_tail_flag'].as_numpy_array()
     upper_tail_indices = reflections['upper_tail_flag'].as_numpy_array()
     lower_tail_reflections = reflections.select(reflections['lower_tail_flag'])
@@ -443,11 +444,12 @@ class reflection_filter(worker):
       lower_tail_reflections['intensity_normalized'].as_numpy_array(),
       lower_tail_reflections['q2'].as_numpy_array()
       )))
-    upper_outliers = model_lower.predict(np.column_stack((
+    upper_outliers = model_upper.predict(np.column_stack((
       upper_tail_reflections['intensity_normalized'].as_numpy_array(),
       upper_tail_reflections['q2'].as_numpy_array()
       )))
 
+    inlier = np.ones(len(reflections), dtype=bool)
     if self.params.select.reflection_filter.apply_lower:
       if np.sum(lower_outliers == -1) > 0:
         indices = np.argwhere(lower_tail_indices)[:, 0]
