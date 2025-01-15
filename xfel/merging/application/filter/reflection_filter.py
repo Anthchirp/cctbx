@@ -8,7 +8,6 @@ from cctbx import miller
 from cctbx.crystal import symmetry
 from six.moves import cStringIO as StringIO
 import numpy as np
-import time
 
 
 class reflection_filter(worker):
@@ -45,6 +44,28 @@ class reflection_filter(worker):
       assert False, \
         'Please only select one algorithm for outlier removal'
 
+  def plot_reflections(self, experiments, reflections, tag):
+    q2_rank = 1 / reflections.compute_d(experiments).as_numpy_array()**2
+    intensity_rank = reflections['intensity.sum.value'].as_numpy_array()
+    q2 = self.mpi_helper.comm.gather(q2_rank, root=0)
+    intensity = self.mpi_helper.comm.gather(intensity_rank, root=0)
+    if self.mpi_helper.rank == 0:
+      import matplotlib.pyplot as plt
+      import os
+      q2 = np.concatenate(q2)
+      intensity = np.concatenate(intensity)
+      fig, axes = plt.subplots(1, 1, figsize=(8, 3))
+      axes.scatter(q2, intensity, s=1, color=[0, 0, 0], marker='.')
+      axes.set_xlabel('$q^2$ = 1/$d^2$ (1/$\mathrm{\AA^2}$)')
+      axes.set_ylabel('Intensity')
+      axes.set_title(tag)
+      fig.tight_layout()
+      fig.savefig(os.path.join(
+        self.params.output.output_dir,
+        self.params.output.prefix + f'_Iobs_{tag}.png'
+        ))
+      plt.close()
+
   def run(self, experiments, reflections):
     filter_by_significance = 'significance_filter' in self.params.select.algorithm
     filter_by_isolation_forest = 'isolation_forest' in self.params.select.algorithm
@@ -55,6 +76,8 @@ class reflection_filter(worker):
 
     n_reflections_initial = len(reflections)
     n_experiments_initial = len(experiments)
+    if self.params.select.reflection_filter.do_diagnostics:
+      self.plot_reflections(experiments, reflections, 'Initial')
     if filter_by_significance:
       experiments, reflections = self.apply_significance_filter(experiments, reflections)
       removed_reflections_significance_rank = n_reflections_initial - len(reflections)
@@ -70,12 +93,18 @@ class reflection_filter(worker):
       if self.mpi_helper.rank == 0:
         self.logger.main_log(f"Total reflections rejected because of significant: {removed_reflections_significance}")
         self.logger.main_log(f"Total experiments rejected because of significant: {removed_experiments_significance}")
+      if self.params.select.reflection_filter.do_diagnostics:
+        self.plot_reflections(experiments, reflections, 'After Significance Filter')
     if filter_by_isolation_forest:
       experiments, reflections = self.apply_isolation_forest(experiments, reflections)
       filter_type = 'Isolation Forest'
+      if self.params.select.reflection_filter.do_diagnostics:
+        self.plot_reflections(experiments, reflections, 'After Isolation Forest')
     elif filter_by_local_outlier_factor:
       experiments, reflections = self.apply_local_outlier_factor(experiments, reflections)
       filter_type = 'Local Outlier Factor'
+      if self.params.select.reflection_filter.do_diagnostics:
+        self.plot_reflections(experiments, reflections, 'After Local Outlier Factor')
 
     if filter_by_isolation_forest or filter_by_local_outlier_factor:
       removed_reflections_filter_rank = n_reflections_initial - len(reflections)
@@ -156,6 +185,7 @@ class reflection_filter(worker):
         out = StringIO()
         ### !!! CRITICAL BOTTLENECK !!! ###
         bin_results = show_observations(exp_observations, out=out, n_bins=N_bins)
+        
         ### !!! CRITICAL BOTTLENECK !!! ###
 
         if self.params.output.log_level == 0:
@@ -250,6 +280,8 @@ class reflection_filter(worker):
 
     # Find the lower and upper thresholds for the data's tails
     percentile = self.params.select.reflection_filter.tail_percentile
+    # These flags are used to identify which reflections are in the tails. They evently will be
+    # added to the reflection table to simplify logistical management
     lower_tail_flag_rank = np.zeros(len(reflections), dtype=bool)
     upper_tail_flag_rank = np.zeros(len(reflections), dtype=bool)
     lower_tail = []
