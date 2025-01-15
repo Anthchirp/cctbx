@@ -17,6 +17,7 @@ xfel/command_line/cxi_mpi_submit.py
 xfel/command_line/fee_calibration.py
 xfel/util/drift.py
 xfel/merging/application/errors/error_modifier_mm24.py
+xfel/merging/application/filter/reflection_filter.py
 xfel/util/preference.py
 cctbx/maptbx/qscore.py
 cctbx/maptbx/tst_qscore.py
