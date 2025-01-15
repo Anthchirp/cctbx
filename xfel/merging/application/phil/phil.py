@@ -312,9 +312,8 @@ select
   .help = The select section accepts or rejects specified reflections
   .help = refer to the filter section for filtering of whole experiments
   {
-  algorithm = panel cspad_sensor significance_filter
-    .type = choice
-    .multiple = True
+  algorithm = panel cspad_sensor significance_filter isolation_forest local_outlier_factor
+    .type = choice(multi=True)
   cspad_sensor {
     number = None
       .type = int(value_min=0, value_max=31)
@@ -345,6 +344,50 @@ select
     d_min = None
       .type = float
       .help = Remove the entire lattice if the resolution is not at least this d_min
+    }
+  reflection_filter
+    .help = Algorithms to identify single reflections as anomalies based on resolution and intensity. \
+      Isolation Forest and Local Outlier Factor are available algorithms. \
+      Refer to scikit-learn for more information: \
+        https://scikit-learn.org/stable/modules/outlier_detection.html \
+        https://scikit-learn.org/stable/modules/generated/sklearn.ensemble.IsolationForest.html \
+        https://scikit-learn.org/stable/modules/generated/sklearn.neighbors.LocalOutlierFactor.html
+    {
+    n_bins = 100
+      .type = int
+      .help = Number of bins used to determine the mean intensity for normalization. Also tails \
+        are taken from within bins instead of over the entire dataset.
+    tail_percentile = 0.01
+      .type = float
+      .help = Percentile used to select the tails of the data.
+    apply_lower = True
+      .type = bool
+      .help = Apply reflection filter to the lower tail of the data.
+    apply_upper = True
+      .type = bool
+      .help = Apply reflection filter to the upper tail of the data.
+    do_diagnostics = False
+      .type = bool
+      .help = Make plots of the reflections selected as outliers
+    contamination_lower = 0.0001
+      .type = float
+      .help = Fraction of lower tail reflections that are outliers
+    contamination_upper = 0.0001
+      .type = float
+      .help = Fraction of upper tail reflections that are outliers
+    local_outlier_factor {
+      n_neighbors = 200
+        .type = int
+        .help = Number of neighbors used to determine local density.
+      }
+    isolation_forest {
+      sampling_fraction = 0.05
+        .type = float
+        .help = Fraction of total dataset subsampled to train each decision tree.
+      random_seed = 0
+        .type = int
+        .help = seed for the random forest model
+      }
     }
 }
 """
