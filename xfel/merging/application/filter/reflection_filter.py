@@ -185,8 +185,6 @@ class reflection_filter(worker):
         out = StringIO()
         ### !!! CRITICAL BOTTLENECK !!! ###
         bin_results = show_observations(exp_observations, out=out, n_bins=N_bins)
-        
-        ### !!! CRITICAL BOTTLENECK !!! ###
 
         if self.params.output.log_level == 0:
           self.logger.log(out.getvalue())
