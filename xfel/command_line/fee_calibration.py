@@ -2,7 +2,6 @@ from __future__ import division
 
 from libtbx.phil import parse
 from libtbx.utils import Sorry
-import psana
 from matplotlib import pyplot as plt
 from serialtbx.util.energy_scan_notch_finder import notch_phil_string, find_notch, plot_notches, calibrate_energy
 
@@ -27,6 +26,8 @@ phil_scope = parse(fee_phil_string + notch_phil_string)
 
 def tally_fee_data(experiment, runs, plot=True, verbose=True, max_events=None):
   """Check each event of each requested run in the specified experiment for a FEE spectrometer event. Report how many events are missing. Return spectrometer data if present."""
+  import psana
+
   good = 0
   bad = 0
   events = []

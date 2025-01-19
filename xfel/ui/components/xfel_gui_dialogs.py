@@ -149,6 +149,39 @@ class SettingsDialog(BaseDialog):
 
     self.main_sizer.Add(self.facility_sizer, flag=wx.EXPAND | wx.ALL)
 
+    self.lcls_api_sizer = wx.BoxSizer(wx.HORIZONTAL)
+
+    lcls_api_host = None
+    if self.params.facility.name == 'lcls':
+      lcls_api_host = self.params.facility.lcls.api.host
+    if lcls_api_host is None: lcls_api_host = ''
+
+    self.lcls_api_host = gctr.TextButtonCtrl(self,
+                                             name='lcls_api_host',
+                                             label='LCLS API Host',
+                                             label_size=(150, -1),
+                                             label_style='bold',
+                                             big_button=False,
+                                             value=lcls_api_host)
+    self.lcls_api_sizer.Add(self.lcls_api_host, flag=wx.EXPAND | wx.ALL, border=10)
+
+    choices = ["http", "https"]
+    self.lcls_api_protocol = gctr.ChoiceCtrl(self,
+                                             name='lcls_api_protocol',
+                                             label='Protocol',
+                                             label_size=(50, -1),
+                                             ctrl_size=(80, -1),
+                                             label_style='bold',
+                                             choices=choices)
+    try:
+      self.lcls_api_protocol.ctr.SetSelection(choices.index(params.facility.lcls.api.protocol))
+    except ValueError:
+      pass
+
+    self.lcls_api_sizer.Add(self.lcls_api_protocol, flag=wx.EXPAND | wx.ALL, border=10)
+
+    self.main_sizer.Add(self.lcls_api_sizer, flag=wx.EXPAND | wx.ALL)
+
     # Experiment name control
     experiment = None
     if self.params.facility.name == 'lcls': experiment = self.params.facility.lcls.experiment
@@ -224,8 +257,12 @@ class SettingsDialog(BaseDialog):
   def setup_facility_options(self):
     if self.params.facility.name in ['lcls']:
       self.experiment.Enable()
+      self.lcls_api_host.Enable()
+      self.lcls_api_protocol.Enable()
     else:
       self.experiment.Disable()
+      self.lcls_api_host.Disable()
+      self.lcls_api_protocol.Disable()
 
   def onFacilityOptions(self, e):
     if self.params.facility.name == 'lcls':
@@ -267,6 +304,8 @@ class SettingsDialog(BaseDialog):
     self.params.output_folder = self.output.ctr.GetValue()
     if self.params.facility.name == 'lcls':
       self.params.facility.lcls.experiment = self.experiment.ctr.GetValue()
+      self.params.facility.lcls.api.host = self.lcls_api_host.ctr.GetValue()
+      self.params.facility.lcls.api.protocol = self.lcls_api_protocol.ctr.GetStringSelection().lower()
 
   def onOK(self, e):
     self.update_settings()
@@ -418,7 +457,7 @@ class DBCredentialsDialog(BaseDialog):
                                    )
           #remove root password from params
           if submission_id:
-            if (self.params.mp.method == 'slurm') or (self.params.mp.method == 'shifter'):
+            if (self.params.mp.method == 'slurm') or (self.params.mp.method == 'shifter') or (self.params.mp.method == 'sfapi'):
               attempts = 10
               q = QueueInterrogator(self.params.mp.method)
               for i in range(attempts):
@@ -753,7 +792,10 @@ class AdvancedSettingsDialog(BaseDialog):
     mp_box = wx.StaticBox(self, label='Multiprocessing Options')
     self.mp_sizer = wx.StaticBoxSizer(mp_box, wx.VERTICAL)
 
-    choices = ['local', 'lsf', 'slurm', 'shifter', 'sge', 'pbs', 'htcondor', 'custom']
+    choices = [
+      'local', 'lsf', 'slurm', 'shifter', 'sfapi', 'sge', 'pbs', 'htcondor',
+      'custom'
+    ]
     self.mp_option = gctr.ChoiceCtrl(self,
                                      name='mp_option',
                                      label='Multiprocessing:',
@@ -1042,6 +1084,7 @@ class AdvancedSettingsDialog(BaseDialog):
     self.staging_help.Wrap(600)
     self.mp_sizer.Add(self.staging_help, flag=wx.EXPAND | wx.ALL, border=10)
 
+    # SFAPI-specific settings
 
     # Data analysis settings
     analysis_box = wx.StaticBox(self, label='Data Analysis Options')
@@ -1195,7 +1238,7 @@ class AdvancedSettingsDialog(BaseDialog):
       self.shifter_constraint.Hide()
       self.log_staging.Hide()
       self.staging_help.Hide()
-    elif self.mp_option.ctr.GetStringSelection() in ['slurm','pbs']:
+    elif self.mp_option.ctr.GetStringSelection() in ['slurm', 'pbs', 'sfapi' ]:
       self.queue_choice.Hide()
       self.queue_text.Show()
       self.nproc.Hide()

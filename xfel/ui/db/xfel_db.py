@@ -406,7 +406,7 @@ class xfel_db_application(db_application):
     else:
       import json
       from six.moves import urllib
-      basequery = "https://pswww.slac.stanford.edu/ws/lgbk/lgbk/%s/ws/files_for_live_mode_at_location?location=%s"
+      basequery = f"{self.params.facility.lcls.api.protocol}://{self.params.facility.lcls.api.host}/ws/lgbk/lgbk/%s/ws/files_for_live_mode_at_location?location=%s"
       query = basequery%(self.params.facility.lcls.experiment, self.params.facility.lcls.web.location)
       R = urllib.request.urlopen(query)
       if R.getcode() != 200:
