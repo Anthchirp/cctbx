@@ -39,13 +39,6 @@ void diffBragg_sum_over_steps_cuda(
         diffBragg_cudaPointers& cp,
         timer_variables& TIMERS){
 
-
-    if (db_cryst.phisteps > 1){
-        printf("PHI (goniometer rotations) not supported in GPU code: phi0=%f phisteps=%d, phistep=%f\n", db_cryst.phi0, db_cryst.phisteps, db_cryst.phistep);
-        printf("SPINDLE VEC: %f %f %f\n",db_cryst.spindle_vec[0], db_cryst.spindle_vec[1], db_cryst.spindle_vec[2]);
-        exit(-1);
-    }
-
     int numblocks;
     int blocksize;
     char* diffBragg_blocks = getenv("DIFFBRAGG_NUM_BLOCKS");
@@ -513,7 +506,9 @@ void diffBragg_sum_over_steps_cuda(
         cp.data_freq, cp.data_trusted,
         cp.FhklLinear_ASUid,
         cp.Fhkl_channels,
-        cp.Fhkl_scale, cp.Fhkl_scale_deriv
+        cp.Fhkl_scale, cp.Fhkl_scale_deriv,
+        db_cryst.xtal_shape==GAUSS_STAR,
+        db_cryst.xtal_shape==SQUARE
         );
 
     error_msg(cudaGetLastError(), "after kernel call");

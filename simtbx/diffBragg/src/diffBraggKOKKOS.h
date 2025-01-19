@@ -10,6 +10,7 @@
 #include "simtbx/diffBragg/src/util.h"
 #include "simtbx/diffBragg/src/util_kokkos.h"
 #include "simtbx/diffBragg/src/diffBragg_refine_flag.h"
+#include "simtbx/nanoBragg/nanotypes.h"
 
 using vector_vec3_t = view_1d_t<KOKKOS_VEC3>;
 using vector_mat3_t = view_1d_t<KOKKOS_MAT3>;

@@ -57,12 +57,6 @@ void diffBraggKOKKOS::diffBragg_sum_over_steps_kokkos(
     cuda_flags& db_cu_flags,
     // diffBragg_kokkosPointers& kp,
     timer_variables& TIMERS) {
-    if (db_cryst.phi0 != 0 || db_cryst.phisteps > 1) {
-        printf(
-            "PHI (goniometer position) not supported in GPU code: phi0=%f phisteps=%d, phistep=%f\n",
-            db_cryst.phi0, db_cryst.phisteps, db_cryst.phistep);
-        exit(-1);
-    }
 
     Kokkos::Tools::pushRegion("diffBragg_sum_over_steps_kokkos");
     Kokkos::Tools::pushRegion("local detector, beam and crystal");
@@ -529,7 +523,10 @@ void diffBraggKOKKOS::diffBragg_sum_over_steps_kokkos(
             m_data_freq, m_data_trusted,
             m_FhklLinear_ASUid,
             m_Fhkl_channels,
-            m_Fhkl_scale, m_Fhkl_scale_deriv);
+            m_Fhkl_scale, m_Fhkl_scale_deriv,
+            db_cryst.xtal_shape==GAUSS_STAR,
+            db_cryst.xtal_shape==SQUARE
+            );
     } else {
         kokkos_sum_over_steps(
             Npix_to_model, m_panels_fasts_slows, m_floatimage, m_wavelenimage, m_d_Umat_images,
@@ -568,7 +565,9 @@ void diffBraggKOKKOS::diffBragg_sum_over_steps_kokkos(
             m_data_freq, m_data_trusted,
             m_FhklLinear_ASUid,
             m_Fhkl_channels,
-            m_Fhkl_scale, m_Fhkl_scale_deriv
+            m_Fhkl_scale, m_Fhkl_scale_deriv,
+            db_cryst.xtal_shape==GAUSS_STAR,
+            db_cryst.xtal_shape==SQUARE
             );
     }
 

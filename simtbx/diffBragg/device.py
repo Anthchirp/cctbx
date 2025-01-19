@@ -21,6 +21,7 @@ class DeviceWrapper:
         """
         self.gpu_id = gpu_id
         self.force_kokkos_init = force
+        self.is_using_kokkos_gpu = USE_KOKKOS_GPU
 
     def __enter__(self):
         if USE_KOKKOS_GPU or self.force_kokkos_init:

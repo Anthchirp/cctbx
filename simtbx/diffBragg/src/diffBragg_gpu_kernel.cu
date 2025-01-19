@@ -2,6 +2,13 @@
 #include <simtbx/diffBragg/src/diffuse_util.h>
 #include <stdio.h>
 
+/* Fourier transform of a grating */
+__device__ CUDAREAL sincg(CUDAREAL x, CUDAREAL N) {
+	if (x != 0.0)
+		return sin(x * N) / sin(x);
+	return N;
+}
+
 __global__
 void gpu_sum_over_steps(
         int Npix_to_model, unsigned int* panels_fasts_slows,
@@ -66,11 +73,16 @@ void gpu_sum_over_steps(
         const int* __restrict__ data_freq, const bool* __restrict__ data_trusted,
         const int* __restrict__ FhklLinear_ASUid,
         const CUDAREAL* __restrict__ Fhkl_channels,
-        const CUDAREAL* __restrict__ Fhkl_scale, CUDAREAL* Fhkl_scale_deriv)
+        const CUDAREAL* __restrict__ Fhkl_scale, CUDAREAL* Fhkl_scale_deriv,
+        bool gaussian_star_shape, bool square_shape)
 { // BEGIN GPU kernel
 
     int tid = blockIdx.x * blockDim.x + threadIdx.x;
     int thread_stride = blockDim.x * gridDim.x;
+    __shared__ CUDAREAL s_phi0, s_phistep, gx,gy,gz;
+    __shared__ int s_phisteps;
+    __shared__ bool s_gaussian_star_shape;
+    __shared__ bool s_square_shape;
     __shared__ bool s_Fhkl_channels_empty;
     __shared__ bool s_Fhkl_have_scale_factors;
     __shared__ bool s_Fhkl_gradient_mode;
@@ -95,9 +107,9 @@ void gpu_sum_over_steps(
     __shared__ CUDAREAL two_C;
     __shared__ MAT3 Bmat_realspace;
     __shared__ MAT3 Amat_init;
-    //__shared__ CUDAREAL s_Na;
-    //__shared__ CUDAREAL s_Nb;
-    //__shared__ CUDAREAL s_Nc;
+    __shared__ CUDAREAL s_Na;
+    __shared__ CUDAREAL s_Nb;
+    __shared__ CUDAREAL s_Nc;
     __shared__ CUDAREAL s_NaNbNc_squared;
     __shared__ int s_h_max, s_k_max, s_l_max, s_h_min, s_k_min, s_l_min, s_h_range, s_k_range, s_l_range;
     __shared__ int s_oversample, s_detector_thicksteps, s_sources, s_mosaic_domains,  s_printout_fpixel,
@@ -126,8 +138,17 @@ void gpu_sum_over_steps(
     __shared__ VEC3 Hmin, Hmax, dHH, Hrange;
     //extern __shared__ CUDAREAL det_vecs[];
     //__shared__ int det_stride;
+    __shared__ CUDAREAL s_xtal_size_sq;
 
     if (threadIdx.x==0){ // TODO can we get speed gains by dividing up the following definitions over more threads ?
+        s_phisteps = phisteps;
+        s_phi0 = phi0;
+        s_phistep = phistep;
+        gx = spindle_vec[0];
+        gy = spindle_vec[1];
+        gz = spindle_vec[2];
+        s_gaussian_star_shape = gaussian_star_shape;
+        s_square_shape = square_shape;
         for (int i=0; i<3; i++){
             s_refine_Ncells[i] = refine_Ncells[i];
             s_refine_Umat[i] = refine_Umat[i];
@@ -170,9 +191,9 @@ void gpu_sum_over_steps(
         s_NABC_det_sq = s_NABC_det*s_NABC_det;
         C = 2 / 0.63 * fudge;
         two_C = 2*C;
-        //s_Na = Na;
-        //s_Nb = Nb;
-        //s_Nc = Nc;
+        s_Na = Na;
+        s_Nb = Nb;
+        s_Nc = Nc;
         s_NaNbNc_squared = (Na*Nb*Nc);
         s_NaNbNc_squared *= s_NaNbNc_squared;
         s_h_max = h_max;
@@ -238,6 +259,12 @@ void gpu_sum_over_steps(
         //    det_vecs[i] = fdet_vectors[i];
         //    det_vecs[i+det_stride] = sdet_vectors[i];
         //}
+        MAT3 Amat0 = Amatrices[0];
+        VEC3 A(Amat0(0,0),Amat0(0,1), Amat0(0,2));
+        VEC3 B(Amat0(1,0),Amat0(1,1), Amat0(1,2));
+        VEC3 C(Amat0(2,0),Amat0(2,1), Amat0(2,2));
+        CUDAREAL cell_vol = A.dot(B.cross(C));
+        s_xtal_size_sq = pow(s_NABC_det*cell_vol, (CUDAREAL)2/(CUDAREAL)3);
     }
 
     //extern __shared__ CUDAREAL source_data[];
@@ -432,10 +459,26 @@ void gpu_sum_over_steps(
             texture_scale *= cap_frac_times_omega;
             texture_scale *= sI;
 
-        for(int _mos_tic=0;_mos_tic<s_mosaic_domains;++_mos_tic){
 
+        for (int _phi_tic=0; _phi_tic<s_phisteps; ++_phi_tic){
+            MAT3 Rphi;
+            CUDAREAL phi = s_phi0 + s_phistep*_phi_tic;
+            if (phi != 0){
+                CUDAREAL c = cos(phi);
+                CUDAREAL omc = 1-c;
+                CUDAREAL s = sin(phi);
+                Rphi << c + gx*gx*omc,    gx*gy*omc-gz*s,   gx*gz*omc+gy*s,
+                      gy*gx*omc + gz*s,   c + gy*gy*omc,   gy*gz*omc - gx*s,
+                      gz*gx*omc - gy*s,  gz*gy*omc + gx*s, c + gz*gz*omc;
+            }
+
+        for(int _mos_tic=0;_mos_tic<s_mosaic_domains;++_mos_tic){
             int amat_idx = _mos_tic;
             MAT3 UBO = Amatrices[amat_idx];
+            if (phi != 0){
+                MAT3 Um = UMATS_RXYZ[_mos_tic]; // note, this will be slow - check if we can simply allow Um and Rphi to commute ...
+                UBO = UBO*Um*Rphi.transpose()*Um.transpose();
+            }
 
             VEC3 H_vec = UBO*q_vec;
             CUDAREAL _h = H_vec[0];
@@ -451,14 +494,33 @@ void gpu_sum_over_steps(
             VEC3 delta_H = H_vec - H0;
             VEC3 V = _NABC*delta_H;
             CUDAREAL _hrad_sqr = V.dot(V);
-            CUDAREAL exparg = _hrad_sqr*C/2;
-            CUDAREAL I0 =0;
-
-            if (exparg< 35)
-                if (s_no_Nabc_scale)
-                    I0 = exp(-2*exparg);
+            CUDAREAL I0=0;
+            if (s_square_shape){
+                I0 = 1;
+                if(s_Na>1)
+                    I0 *= sincg(M_PI*_h,s_Na);
+                if(s_Nb>1)
+                    I0 *= sincg(M_PI*_k,s_Nb);
+                if(s_Nc>1)
+                    I0 *= sincg(M_PI*_l,s_Nc);
+                I0 *= I0;
+            }
+            else{
+                CUDAREAL exparg;
+                if (s_gaussian_star_shape){
+                    MAT3 Ainv = UBO.inverse();
+                    VEC3 delta_Q = Ainv*delta_H;
+                    CUDAREAL rad_star_sqr = delta_Q.dot(delta_Q)*s_xtal_size_sq;
+                    exparg = rad_star_sqr*1.9*fudge;
+                }
                 else
-                    I0 = (s_NABC_det_sq)*exp(-2*exparg);
+                    exparg = _hrad_sqr*C/2;
+                if (exparg< 35)
+                    if (s_no_Nabc_scale)
+                        I0 = exp(-2*exparg);
+                    else
+                        I0 = (s_NABC_det_sq)*exp(-2*exparg);
+            }
 
             // are we doing diffuse scattering
             CUDAREAL step_diffuse_param[6]  = {0,0,0,0,0,0};
@@ -606,6 +668,8 @@ void gpu_sum_over_steps(
             MAT3 UBOt;
             if (s_refine_Umat[0] || s_refine_Umat[1] ||s_refine_Umat[2] || s_refine_eta){
                 UBOt = Amat_init;
+                if (phi != 0)
+                    UBOt = Rphi*UBOt;
             }
             if (s_refine_Umat[0]){
                 MAT3 RyRzUBOt = RotMats[1]*RotMats[2]*UBOt;
@@ -910,6 +974,7 @@ void gpu_sum_over_steps(
             }
 
             } // end of mos_tic loop
+            } // end of phi_tic loop
            } // end of source loop
           } // end of thick step loop
          } // end of fpos loop

@@ -21,6 +21,7 @@ using simtbx::nanoBragg::SQUARE;
 using simtbx::nanoBragg::ROUND;
 using simtbx::nanoBragg::GAUSS;
 using simtbx::nanoBragg::GAUSS_ARGCHK;
+using simtbx::nanoBragg::GAUSS_STAR;
 using simtbx::nanoBragg::TOPHAT;
 
 static void CheckCudaErrorAux(const char *, unsigned, const char *, cudaError_t);
@@ -740,12 +741,39 @@ CUDAREAL pixel_size, CUDAREAL subpixel_size, int steps, CUDAREAL detector_thicks
 									/* fudge the radius so that volume and FWHM are similar to square_xtal spots */
 									F_latt = Na * Nb * Nc * exp(-(hrad_sqr / 0.63 * fudge));
 								}
-                                                                if (s_xtal_shape == GAUSS_ARGCHK) {
-                                                                        /* fudge the radius so that volume and FWHM are similar to square_xtal spots */
-                                                                        double my_arg = hrad_sqr / 0.63 * fudge;
-                                                                        if (my_arg<35.){ F_latt = Na * Nb * Nc * exp(-(my_arg));
-                                                                        } else { F_latt = 0.; } // warps coalesce when blocks of 32 pixels have no Bragg signal
-                                                                }
+                                if (s_xtal_shape == GAUSS_ARGCHK) {
+                                   /* fudge the radius so that volume and FWHM are similar to square_xtal spots */
+                                   double my_arg = hrad_sqr / 0.63 * fudge;
+                                   if (my_arg<35.){ F_latt = Na * Nb * Nc * exp(-(my_arg));
+                                   } else { F_latt = 0.; } // warps coalesce when blocks of 32 pixels have no Bragg signal
+                                }
+                                if (s_xtal_shape == GAUSS_STAR){
+                                   CUDAREAL a_cross_b[] = { 0.0, 0.0, 0.0, 0.0 };
+                                   CUDAREAL b_cross_c[] = { 0.0, 0.0, 0.0, 0.0 };
+                                   CUDAREAL c_cross_a[] = { 0.0, 0.0, 0.0, 0.0 };
+                                   cross_product(a,b,a_cross_b);
+                                   cross_product(b,c,b_cross_c);
+                                   cross_product(c,a,c_cross_a);
+                                   /* new reciprocal-space cell vectors */
+                                   CUDAREAL a_star_tic[] = {0,0,0,0};
+                                   CUDAREAL b_star_tic[] = {0,0,0,0};
+                                   CUDAREAL c_star_tic[] = {0,0,0,0};
+                                   vector_scale(b_cross_c,a_star_tic,1e20/V_cell);
+                                   vector_scale(c_cross_a,b_star_tic,1e20/V_cell);
+                                   vector_scale(a_cross_b,c_star_tic,1e20/V_cell);
+                                   //}
+                                   CUDAREAL dh=h-h0;
+                                   CUDAREAL dk=k-k0;
+                                   CUDAREAL dl=l-l0;
+                                   CUDAREAL dx_star = dh*a_star_tic[1] + dk*b_star_tic[1] + dl*c_star_tic[1];
+                                   CUDAREAL dy_star = dh*a_star_tic[2] + dk*b_star_tic[2] + dl*c_star_tic[2];
+                                   CUDAREAL dz_star = dh*a_star_tic[3] + dk*b_star_tic[3] + dl*c_star_tic[3];
+                                   CUDAREAL Nvol=Na*Nb*Nc;
+                                   CUDAREAL xtal_size_sq = pow(Nvol*V_cell, CUDAREAL(2)/CUDAREAL(3));
+                                   CUDAREAL rad_star_sqr = ( dx_star*dx_star + dy_star*dy_star + dz_star*dz_star )
+                                                  *xtal_size_sq;
+                                   F_latt = Nvol*exp(-( rad_star_sqr *1.9 * fudge ));
+                                }
 								if (s_xtal_shape == TOPHAT) {
 									/* make a flat-top spot of same height and volume as square_xtal spots */
 									F_latt = Na * Nb * Nc * (hrad_sqr * fudge < 0.3969);
