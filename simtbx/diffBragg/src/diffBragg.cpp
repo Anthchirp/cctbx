@@ -2160,6 +2160,8 @@ void diffBragg::add_diffBragg_spots(const af::shared<size_t>& panels_fasts_slows
         printf("DIFFBRAGG isotropic Ncells=%d\n", isotropic_ncells);
         if(use_gpu || getenv("DIFFBRAGG_USE_CUDA")!= NULL || getenv("DIFFBRAGG_USE_KOKKOS")!= NULL)
             printf("TIME TO RUN DIFFBRAGG -GPU- (%llu iterations):  %3.10f ms \n",n_total_iter, time);
+        else if(getenv("DIFFBRAGG_USE_KOKKOS")!= NULL)
+            printf("TIME TO RUN DIFFBRAGG -KOKKOS- (%llu iterations):  %3.10f ms \n",n_total_iter, time);
         else
             printf("TIME TO RUN DIFFBRAGG -CPU- (%llu iterations):  %3.10f ms \n",n_total_iter, time);
     }
