@@ -2122,13 +2122,13 @@ class PhaserBuilder(CCIBuilder):
       self.skip_base = "hdf5,lz4_plugin,py2app,wxpython,docutils,pyopengl,pillow,tiff," + \
         "cairo,fonts,render,fontconfig,pixman,png,sphinx,freetype,gtk,matplotlib," + \
         "cython,h5py,gettext,numpy,pythonextra,pytest,junitxml,libsvm,pyrtf,six,send2trash," + \
-         "jinja2,orderedset,tabulate,scipy,scikit_learn,biopython,expat,glib,mrcfile"
+         "jinja2,ordered_set,tabulate,scipy,scikit_learn,biopython,expat,glib,mrcfile"
     else:
       self.skip_base = ','.join(self.skip_base.split(',') + ['hdf5','lz4_plugin','py2app',
          'wxpython','docutils','pyopengl','pillow','tiff','cairo','fonts','pyrtf','six','send2trash',
          'fontconfig','render','pixman','png','sphinx','freetype','gtk', 'matplotlib',
          'cython', 'h5py', 'gettext', 'numpy', 'pythonextra', 'pytest', 'junitxml','libsvm',
-         'jinja2', 'orderedset', 'tabulate', 'scipy', 'scikit_learn', 'biopython',
+         'jinja2', 'ordered_set', 'tabulate', 'scipy', 'scikit_learn', 'biopython',
          'expat', 'glib', 'mrcfile'
          ])
     super(PhaserBuilder, self).add_base(
