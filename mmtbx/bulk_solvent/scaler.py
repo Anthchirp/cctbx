@@ -374,11 +374,13 @@ class run(object):
       selection, core, selection_use, sel_work = cas
       f_obs = self.f_obs.select(selection)
       k_total_ = k_total.select(selection)
+      f_calc = core.f_calc.data() * k_total_
+      f_mask = core.f_mask().data() * k_total_
       k_mask_bin_, k_isotropic_bin_ = \
         bulk_solvent.k_mask_and_k_overall_grid_search(
-          f_obs.data()/k_total_,
-          core.f_calc.data(),
-          core.f_mask().data(),
+          f_obs.data(),
+          f_calc,
+          f_mask,
           k_mask_trial_range,
           selection_use)
       k_mask_bin.append(k_mask_bin_)
