@@ -256,7 +256,7 @@ class levenberg_marquardt_iterations(iterations):
       objective_new = self.non_linear_ls.objective()
       actual_decrease = objective - objective_new
       rho = actual_decrease/expected_decrease
-      if rho > 0:
+      if rho >= 0:
         if self.has_gradient_converged_to_zero(): break
         self.mu *= max(1/3, 1 - (2*rho - 1)**3)
         nu = 2
@@ -325,7 +325,7 @@ class levenberg_marquardt_iterations_encapsulated_eqns(
       rho = actual_decrease/expected_decrease
       if self.objective_decrease_threshold is not None:
         if actual_decrease/objective < self.objective_decrease_threshold: break
-      if rho > 0:
+      if rho >= 0:
         if self.has_gradient_converged_to_zero(): break
         self.mu *= max(1/3, 1 - (2*rho - 1)**3)
         nu = 2
