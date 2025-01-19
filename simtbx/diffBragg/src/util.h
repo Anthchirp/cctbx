@@ -10,6 +10,8 @@
 #include <string>
 #include <sys/time.h>
 
+#include "dlpack/dlpack.h"
+
 #ifndef CUDAREAL
     #define CUDAREAL double
 #endif
@@ -27,6 +29,48 @@ inline void easy_time(double& timer, struct timeval& t, bool recording){
     double time = (1000000.0 * (t.tv_sec - before_sec) + t.tv_usec - before_usec) / 1000.0;
     if (recording)
         timer += time;
+}
+
+template<typename DataType>
+DLDataTypeCode getDLPackTypeCode() {
+  if (std::is_same<DataType, float>::value) {
+    return kDLFloat;
+  } else if (std::is_same<DataType, double>::value) {
+    return kDLFloat;
+  } else if (std::is_same<DataType, int>::value) {
+    return kDLInt;
+  } else if (std::is_same<DataType, unsigned int>::value) {
+    return kDLUInt;
+  // } else if (std::is_same<DataType, bool>::value) {
+    // return kDLBool;
+  } else {
+    // Unsupported data type
+    throw std::runtime_error("Unsupported data type for DLPack conversion");
+  }
+}
+
+template<typename DataType>
+DLManagedTensor* array_to_dlpack(DataType* pointer, int64_t length) {
+
+  int64_t* shape = new int64_t[1];
+  shape[0] = length;
+
+  // Create a DLPack tensor
+  DLManagedTensor* dlpackTensor = new DLManagedTensor;
+  dlpackTensor->dl_tensor.data = static_cast<void*>(pointer);
+  dlpackTensor->dl_tensor.device = {kDLCPU, 0};
+  dlpackTensor->dl_tensor.dtype.code = getDLPackTypeCode<DataType>();
+  dlpackTensor->dl_tensor.dtype.bits = sizeof(DataType) * 8;
+  dlpackTensor->dl_tensor.dtype.lanes = 1;
+  dlpackTensor->dl_tensor.ndim = 1;
+  dlpackTensor->dl_tensor.shape = shape;
+  dlpackTensor->dl_tensor.strides = nullptr;
+  dlpackTensor->dl_tensor.byte_offset = 0;
+  dlpackTensor->manager_ctx = nullptr;
+  dlpackTensor->deleter = [](DLManagedTensor* tensor) {
+      delete[] tensor->dl_tensor.shape;
+  };
+  return dlpackTensor;
 }
 
 struct timer_variables{
@@ -124,6 +168,7 @@ struct flags{
     bool isotropic_ncells = false; // one mosaic domain parameter
     bool complex_miller = false;  // is the miller array complex (such thet Fhkl_linear and Fhkl2_linear are both defined)
     bool no_Nabc_scale = false; // no Nabc prefactor
+    bool host_transfer = true; // transfer data after add_diffbragg_spots
     bool refine_diffuse = false; // flag for computing diffuse gradients
     std::vector<bool> refine_Bmat;  //  Bmatrix
     std::vector<bool> refine_Ncells; // mosaic domain size

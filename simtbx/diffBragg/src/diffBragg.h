@@ -170,7 +170,6 @@ class diffBragg: public nanoBragg{
     inline void kokkos_free() { diffBragg_runner.reset(); }
     // allocate when needed to avoid problems with kokkos initialization when cuda/kokkos isn't used
     std::shared_ptr<diffBraggKOKKOS> diffBragg_runner{};
-    // diffBraggKOKKOS diffBragg_runner;
 #endif
 
     inline void gpu_free(){
@@ -238,6 +237,32 @@ class diffBragg: public nanoBragg{
   af::flex_double get_raw_pixels_roi();
   boost::python::tuple get_fp_fdp_derivative_pixels();
   boost::python::tuple get_ncells_derivative_pixels();
+
+  PyObject* PyCapsule_Wrapper(DLManagedTensor* (diffBraggKOKKOS::*func)(), image_type &vec);
+  PyObject* get_floatimage();
+  PyObject* get_wavelenimage();
+  PyObject* get_d_diffuse_gamma_images();
+  PyObject* get_d_diffuse_sigma_images();
+  PyObject* get_d_Umat_images();
+  PyObject* get_d2_Umat_images();
+  PyObject* get_d_Bmat_images();
+  PyObject* get_d2_Bmat_images();
+  PyObject* get_d_Ncells_images();
+  PyObject* get_d2_Ncells_images();
+  PyObject* get_d_fcell_images();
+  PyObject* get_d2_fcell_images();
+  PyObject* get_d_eta_images();
+  PyObject* get_d2_eta_images();
+  PyObject* get_d_lambda_images();
+  PyObject* get_d2_lambda_images();
+  PyObject* get_d_panel_rot_images();
+  PyObject* get_d2_panel_rot_images();
+  PyObject* get_d_panel_orig_images();
+  PyObject* get_d2_panel_orig_images();
+  PyObject* get_d_fp_fdp_images();
+  PyObject* get_Fhkl_scale_deriv();
+  PyObject* get_Fhkl_hessian();
+
   boost::python::tuple get_diffuse_gamma_derivative_pixels();
   boost::python::tuple get_diffuse_sigma_derivative_pixels();
   boost::python::tuple get_ncells_def_derivative_pixels();
@@ -287,6 +312,7 @@ class diffBragg: public nanoBragg{
   bool update_oversample_during_refinement;
   bool oversample_omega;
   bool only_save_omega_kahn;
+  bool host_transfer;
 
   // miller array
   void quick_Fcell_update(boost::python::tuple const& value);

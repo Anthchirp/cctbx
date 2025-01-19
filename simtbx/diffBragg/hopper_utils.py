@@ -2,6 +2,7 @@ from __future__ import absolute_import, division, print_function
 import time
 import os
 import json
+import torch
 from dials.algorithms.shoebox import MaskCode
 from copy import deepcopy
 from dials.model.data import Shoebox
@@ -24,7 +25,7 @@ from dials.array_family import flex
 from simtbx.diffBragg import utils
 from simtbx.diffBragg.refiners.parameters import RangedParameter, Parameters, PositiveParameter
 from simtbx.diffBragg.attr_list import NB_BEAM_ATTRS, NB_CRYST_ATTRS, DIFFBRAGG_ATTRS
-from simtbx.diffBragg import psf
+from simtbx.diffBragg import psf, kokkos_device
 
 try:
     from line_profiler import LineProfiler
@@ -683,25 +684,26 @@ class DataModeler:
             x1, x2, y1, y2 = self.rois[i_roi]
             freq = pixel_counter[pid, y1:y2, x1:x2].ravel()
             all_freq += list(freq)
-        self.all_freq = np.array(all_freq, np.int32)  # if no overlapping pixels, this should be an array of 1's
+        self.all_freq = torch.tensor(all_freq, dtype=torch.int32, device=kokkos_device())  # if no overlapping pixels, this should be an array of 1's
         if not self.params.roi.allow_overlapping_spots:
-            if not np.all(self.all_freq==1):
-                print(set(self.all_freq))
+            if not torch.all(self.all_freq==1):
+                print(set(self.all_freq.cpu().numpy()))
                 raise ValueError("There are overlapping regions of interest, despite the command to not allow overlaps")
 
         self.all_q_perpix = np.array(all_q_perpix)
         pan_fast_slow = np.ascontiguousarray((np.vstack([all_pid, all_fast, all_slow]).T).ravel())
         self.pan_fast_slow = flex.size_t(pan_fast_slow)
-        self.all_background = np.array(all_background)
+        self.all_background = torch.tensor(all_background, device=kokkos_device())
         self.roi_id = np.array(roi_id)
-        self.all_data = np.array(all_data)
+        self.all_data = torch.tensor(all_data, device=kokkos_device())
         if np.allclose(all_sigma_rdout, self.nominal_sigma_rdout):
             self.all_sigma_rdout = self.nominal_sigma_rdout
         else:
             self.all_sigma_rdout = np.array(all_sigma_rdout)
-        self.all_sigmas = np.array(all_sigmas)
+        self.all_sigmas = torch.tensor(all_sigmas, device=kokkos_device())
         # note rare chance for sigmas to be nan if the args of sqrt is below 0
-        self.all_trusted = np.logical_and(np.array(all_trusted), ~np.isnan(all_sigmas))
+        all_trusted = torch.tensor(all_trusted, device=kokkos_device())
+        self.all_trusted = torch.logical_and(all_trusted, ~torch.isnan(self.all_sigmas))
 
         if self.params.roi.skip_roi_with_negative_bg:
             # Dont include pixels whose background model is below 0
@@ -728,18 +730,18 @@ class DataModeler:
             roi_sel = self.roi_id==i_roi
             x1, x2, y1, y2 = self.rois[i_roi]
             roi_shape = y2-y1, x2-x1
-            roi_img = self.all_data[roi_sel].reshape(roi_shape).astype(np.float32)  #NOTE this has already been converted to photon units
-            roi_bg = self.all_background[roi_sel].reshape(roi_shape).astype(np.float32)
+            roi_img = self.all_data[roi_sel].reshape(roi_shape).float()  #NOTE this has already been converted to photon units
+            roi_bg = self.all_background[roi_sel].reshape(roi_shape).float()
 
             sb = Shoebox((x1, x2, y1, y2, 0, 1))
             sb.allocate()
-            sb.data = flex.float(np.ascontiguousarray(roi_img[None]))
-            sb.background = flex.float(np.ascontiguousarray(roi_bg[None]))
+            sb.data = flex.float(roi_img[None].cpu().contiguous().numpy())
+            sb.background = flex.float(roi_bg[None].cpu().contiguous().numpy())
 
-            dials_mask = np.zeros(roi_img.shape).astype(np.int32)
+            dials_mask = torch.zeros(roi_img.shape, device=kokkos_device()).int()
             mask = self.all_trusted[roi_sel].reshape(roi_shape)
             dials_mask[mask] = dials_mask[mask] + MaskCode.Valid
-            sb.mask = flex.int(np.ascontiguousarray(dials_mask[None]))
+            sb.mask = flex.int(dials_mask[None].cpu().contiguous().numpy())
 
             # quick sanity test
             if do_xyobs_sanity_check:
@@ -1248,7 +1250,7 @@ class DataModeler:
             SIM.D.force_cpu = True
             MAIN_LOGGER.info("Getting Fhkl errors (forcing CPUkernel usage)... might take some time")
             Fhkl_scale_errors = SIM.D.add_Fhkl_gradients(
-                self.pan_fast_slow, resid, V, self.all_trusted, self.all_freq,
+                self.pan_fast_slow, resid.cpu().numpy(), V.cpu().numpy(), self.all_trusted.cpu().numpy(), self.all_freq.cpu().numpy(),
                 SIM.num_Fhkl_channels, G, track=True, errors=True)
             SIM.D.force_gpu = force_cpu
             # ------------
@@ -1336,21 +1338,22 @@ class DataModeler:
                 fit = model_subimg[i_roi]
                 trust = trusted_subimg[i_roi]
                 if sigma_rdout_subimg is not None:
-                    sig = np.sqrt(fit + sigma_rdout_subimg[i_roi] ** 2)
+                    sig = torch.sqrt(fit + sigma_rdout_subimg[i_roi] ** 2)
                 else:
-                    sig = np.sqrt(fit + Modeler.nominal_sigma_rdout ** 2)
+                    sig = torch.sqrt(fit + Modeler.nominal_sigma_rdout ** 2)
                 Z = (dat - fit) / sig
                 sigmaZ = np.nan
-                if np.any(trust):
-                    sigmaZ = Z[trust].std()
+                if torch.any(trust):
+                    sigmaZ = Z[trust].std().item()
 
                 sigmaZs.append(sigmaZ)
                 if bragg_subimg[0] is not None:
-                    if np.any(bragg_subimg[i_roi] > 0):
+                    if torch.any(bragg_subimg[i_roi] > 0):
                         ref_idx = Modeler.refls_idx[i_roi]
                         ref = Modeler.refls[ref_idx]
                         I = bragg_subimg[i_roi]
-                        Y, X = np.indices(bragg_subimg[i_roi].shape)
+                        ny, nx = bragg_subimg[i_roi].shape
+                        Y, X = torch.meshgrid(torch.arange(ny, device=kokkos_device()), torch.arange(nx, device=kokkos_device()), indexing='ij')
                         x1, x2, y1, y2 = Modeler.rois[i_roi]
                         com_x, com_y, _ = ref["xyzobs.px.value"]
                         com_x = int(com_x - x1 - 0.5)
@@ -1361,11 +1364,11 @@ class DataModeler:
                                 continue
                         except IndexError:
                             continue
-                        X += x1
-                        Y += y1
-                        Isum = I.sum()
-                        xcom = (X * I).sum() / Isum
-                        ycom = (Y * I).sum() / Isum
+                        X = X + x1
+                        Y = Y + y1
+                        Isum = I.sum().item()
+                        xcom = (X * I).sum().item() / Isum
+                        ycom = (Y * I).sum().item() / Isum
                         com = xcom + .5, ycom + .5, 0
                         new_xycalcs[ref_idx] = com
                         if not Modeler.params.fix.perRoiScale:
@@ -1570,7 +1573,7 @@ def model(x, Mod, SIM,  compute_grad=True, dont_rescale_gradient=False, update_s
     J = None
     if compute_grad:
         # This should be all params save the Fhkl params
-        J = np.zeros((nparam-SIM.Num_ASU*SIM.num_Fhkl_channels, npix))  # gradients
+        J = torch.zeros((nparam-SIM.Num_ASU*SIM.num_Fhkl_channels, npix), device=kokkos_device())  # gradients
 
     model_pix = None
     #TODO check roiScales mode and if its broken, git rid of it!
@@ -1581,7 +1584,7 @@ def model(x, Mod, SIM,  compute_grad=True, dont_rescale_gradient=False, update_s
     if not Mod.params.fix.perRoiScale:
         perRoiParams = [Mod.P["scale_roi%d" % roi_id] for roi_id in Mod.roi_id_unique]
         perRoiScaleFactors = [p.get_val(x[p.xpos]) for p in perRoiParams]
-        roiScalesPerPix = np.zeros(npix)
+        roiScalesPerPix = torch.zeros(npix, device=kokkos_device())
         for i_roi, roi_id in enumerate(Mod.roi_id_unique):
             slc = Mod.roi_id_slices[roi_id][0]
             roiScalesPerPix[slc] = perRoiScaleFactors[i_roi]
@@ -1615,8 +1618,7 @@ def model(x, Mod, SIM,  compute_grad=True, dont_rescale_gradient=False, update_s
 
         SIM.D.add_diffBragg_spots(pfs)
 
-        pix_noRoiScale = SIM.D.raw_pixels_roi[:npix]
-        pix_noRoiScale = pix_noRoiScale.as_numpy_array()
+        pix_noRoiScale = torch.from_dlpack(SIM.D.get_floatimage())[:npix]
 
         pix = pix_noRoiScale * roiScalesPerPix
 
@@ -1634,16 +1636,17 @@ def model(x, Mod, SIM,  compute_grad=True, dont_rescale_gradient=False, update_s
                 J[G.xpos] += scale_grad
 
             if RotXYZ_params[0].refine:
+                rot_grads = scale * torch.from_dlpack(SIM.D.get_d_Umat_images())
                 for i_rot in range(3):
-                    rot_grad = scale * SIM.D.get_derivative_pixels(ROTXYZ_IDS[i_rot]).as_numpy_array()[:npix]
+                    rot_grad = rot_grads[i_rot*npix:(i_rot+1)*npix]
                     rot_p = RotXYZ_params[i_rot]
                     rot_grad = rot_p.get_deriv(x[rot_p.xpos], rot_grad)
                     J[rot_p.xpos] += rot_grad
 
             if Nabc_params[0].refine:
-                Nabc_grads = SIM.D.get_ncells_derivative_pixels()
+                Nabc_grads = scale * torch.from_dlpack(SIM.D.get_d_Ncells_images())[:3*npix]
                 for i_n in range(3):
-                    N_grad = scale*(Nabc_grads[i_n][:npix].as_numpy_array())
+                    N_grad = Nabc_grads[i_n*npix:(i_n+1)*npix]
                     p = Nabc_params[i_n]
                     N_grad = p.get_deriv(x[p.xpos], N_grad)
                     J[p.xpos] += N_grad
@@ -1651,53 +1654,51 @@ def model(x, Mod, SIM,  compute_grad=True, dont_rescale_gradient=False, update_s
                         break
 
             if Ndef_params[0].refine:
-                Ndef_grads = SIM.D.get_ncells_def_derivative_pixels()
+                Ndef_grads = scale * torch.from_dlpack(SIM.D.get_d_Ncells_images())[3*npix:]
                 for i_n in range(3):
-                    N_grad = scale * (Ndef_grads[i_n][:npix].as_numpy_array())
+                    N_grad = Ndef_grads[i_n*npix:(i_n+1)*npix]
                     p = Ndef_params[i_n]
                     N_grad = p.get_deriv(x[p.xpos], N_grad)
                     J[p.xpos] += N_grad
 
             if SIM.D.use_diffuse:
                 for t in ['gamma','sigma']:
-                    diffuse_grads = getattr(SIM.D, "get_diffuse_%s_derivative_pixels" % t)()
+                    diffuse_grads = scale * torch.from_dlpack( getattr(SIM.D, "get_d_diffuse_%s_images" % t)() )
                     if diffuse_params_lookup[t][0].refine:
                         for i_diff in range(3):
-                            diff_grad = scale*(diffuse_grads[i_diff][:npix].as_numpy_array())
+                            diff_grad = diffuse_grads[i_diff*npix:(i_diff+1)*npix]
                             p = diffuse_params_lookup[t][i_diff]
                             diff_grad = p.get_deriv(x[p.xpos], diff_grad)
                             J[p.xpos] += diff_grad
 
             if eta_params[0].refine:
-                if SIM.D.has_anisotropic_mosaic_spread:
-                    eta_derivs = SIM.D.get_aniso_eta_deriv_pixels()
-                else:
-                    eta_derivs = [SIM.D.get_derivative_pixels(ETA_ID)]
+                eta_derivs = scale * torch.from_dlpack(SIM.D.get_d_eta_images())
                 num_eta = 3 if SIM.D.has_anisotropic_mosaic_spread else 1
                 for i_eta in range(num_eta):
                     p = eta_params[i_eta]
-                    eta_grad = scale * (eta_derivs[i_eta][:npix].as_numpy_array())
+                    eta_grad = eta_derivs[i_eta*npix:(i_eta+1)*npix]
                     eta_grad = p.get_deriv(x[p.xpos], eta_grad)
                     J[p.xpos] += eta_grad
 
             if ucell_params[0].refine:
+                ucell_grads = scale * torch.from_dlpack(SIM.D.get_d_Bmat_images())
                 for i_ucell in range(nucell):
                     p = ucell_params[i_ucell]
-                    deriv = scale*SIM.D.get_derivative_pixels(UCELL_ID_OFFSET+i_ucell).as_numpy_array()[:npix]
+                    deriv = ucell_grads[i_ucell*npix: (i_ucell+1)*npix]
                     deriv = p.get_deriv(x[p.xpos], deriv)
                     J[p.xpos] += deriv
 
             if DetZ.refine:
-                d = SIM.D.get_derivative_pixels(DETZ_ID).as_numpy_array()[:npix]
+                d = torch.from_dlpack(SIM.D.get_d_panel_orig_images())[npix:2*npix]
                 d = DetZ.get_deriv(x[DetZ.xpos], d)
                 J[DetZ.xpos] += d
 
             if Mod.P["lambda_offset"].refine:
-                lambda_derivs = SIM.D.get_lambda_derivative_pixels()
+                lambda_derivs = torch.from_dlpack(SIM.D.get_d_lambda_images())
                 lambda_param_names = "lambda_offset", "lambda_scale"
-                for d,name in zip(lambda_derivs, lambda_param_names):
+                for i_lmbd,name in enumerate(lambda_param_names):
                     p = Mod.P[name]
-                    d = d.as_numpy_array()[:npix]
+                    d = lambda_derivs[i_lmbd*npix:(i_lmbd+1)*npix]
                     d = p.get_deriv(x[p.xpos], d)
                     J[p.xpos] += d
 
@@ -1907,14 +1908,14 @@ def target_func(x, udpate_terms, mod, SIM, compute_grad=True, return_all_zscores
     V = model_pix + sigma_rdout**2
     # TODO:what if V is allowed to be negative? The logarithm/sqrt will explore below
     resid_square = resid**2
-    fLogLike = (.5*(np.log(2*np.pi*V) + resid_square / V))
+    fLogLike = (.5*(torch.log(2*torch.pi*V) + resid_square / V))
     if params.roi.allow_overlapping_spots:
         fLogLike /= mod.all_freq
-    fLogLike = fLogLike[trusted].sum()   # negative log Likelihood target
+    fLogLike = fLogLike[trusted].sum().item()   # negative log Likelihood target
 
     # width of z-score should decrease as refinement proceeds
-    zscore_per = resid/np.sqrt(V)
-    zscore_sigma = np.std(zscore_per[trusted])
+    zscore_per = resid/torch.sqrt(V)
+    zscore_sigma = torch.std(zscore_per[trusted]).item()
 
     restraint_terms = {}
     if params.use_restraints:
@@ -2041,8 +2042,10 @@ def target_func(x, udpate_terms, mod, SIM, compute_grad=True, return_all_zscores
         if SIM.refining_Fhkl:
             spot_scale_p = mod.P["G_xtal0"]
             G = spot_scale_p.get_val(x[spot_scale_p.xpos])
-            fhkl_grad = SIM.D.add_Fhkl_gradients(pfs, resid, V, trusted,
-                                                 mod.all_freq, SIM.num_Fhkl_channels, G)
+            fhkl_grad = SIM.D.add_Fhkl_gradients(pfs, resid.cpu().numpy(), V.cpu().numpy(), trusted.cpu().numpy(),
+                                                 mod.all_freq.cpu().numpy(), SIM.num_Fhkl_channels, G)
+            if not SIM.D.host_transfer:
+                fhkl_grad = torch.from_dlpack(SIM.D.get_Fhkl_scale_deriv()).cpu().numpy()
 
             if params.betas.Fhkl is not None:
                 for i_chan in range(SIM.num_Fhkl_channels):
@@ -2056,7 +2059,6 @@ def target_func(x, udpate_terms, mod, SIM, compute_grad=True, return_all_zscores
 
 
         gnorm = np.linalg.norm(g)
-
 
     debug_s = "F=%10.7g sigZ=%10.7g (Fracs of F: %s), |g|=%10.7g" \
               % (f, zscore_sigma, restraint_debug_s, gnorm)
@@ -2080,6 +2082,11 @@ def refine(exp, ref, params, spec=None, gpu_device=None, return_modeler=False, b
     SIM = get_simulator_for_data_modelers(Modeler)
     Modeler.set_parameters_for_experiment(best=best)
     SIM.D.device_Id = gpu_device
+    old_transfer = None
+    if os.environ.get("DIFFBRAGG_USE_KOKKOS") is not None:
+        if SIM.D.host_transfer == True:
+            old_transfer = True
+            SIM.D.host_transfer = False
 
     nparam = len(Modeler.P)
     if SIM.refining_Fhkl:
@@ -2106,6 +2113,9 @@ def refine(exp, ref, params, spec=None, gpu_device=None, return_modeler=False, b
 
     if free_mem:
         Modeler.clean_up(SIM)
+
+    if old_transfer is not None:
+        SIM.D.host_transfer = old_transfer
 
     if return_modeler:
         return new_exp, new_refl, Modeler, SIM, x
@@ -2189,12 +2199,12 @@ def get_new_xycalcs(Modeler, new_exp, old_refl_tag="dials"):
     for i_roi in range(len(bragg_subimg)):
 
         ref_idx = Modeler.refls_idx[i_roi]
-
         #assert ref_idx==i_roi
-        if np.any(bragg_subimg[i_roi] > 0):
+        if torch.any(bragg_subimg[i_roi] > 0):
             I = bragg_subimg[i_roi]
-            assert np.all(I>=0)
-            Y, X = np.indices(bragg_subimg[i_roi].shape)
+            assert torch.all(I>=0)
+            ny, nx = bragg_subimg[i_roi].shape
+            X, Y = torch.meshgrid(torch.arange(nx, device=kokkos_device()), torch.arange(ny, device=kokkos_device()), indexing='xy')
             x1, _, y1, _ = Modeler.rois[i_roi]
 
             com_x, com_y, _ = new_refls[ref_idx]["xyzobs.px.value"]
@@ -2207,11 +2217,11 @@ def get_new_xycalcs(Modeler, new_exp, old_refl_tag="dials"):
             except IndexError:
                 continue
 
-            X += x1
-            Y += y1
-            Isum = I.sum()
-            xcom = (X * I).sum() / Isum + .5
-            ycom = (Y * I).sum() / Isum + .5
+            X = X + x1
+            Y = Y + y1
+            Isum = I.sum().item()
+            xcom = (X * I).sum().item() / Isum + .5
+            ycom = (Y * I).sum().item() / Isum + .5
             com = xcom, ycom, 0
 
             pid = Modeler.pids[i_roi]
