@@ -652,7 +652,11 @@ else:
       env_etc.cxxflags_base.append("-std=c++0x")
       env_etc.cxx11_is_available = True
     if (libtbx.env.build_options.warning_level == 0):
-      warn_options = ["-w"]
+      warn_options = ["-w",
+"-Wno-deprecated-declarations",# deep in boost python stack
+"-Wno-maybe-uninitialized",#boost/boost/python/extract.hpp:185
+"-Wno-terminate",# dials difficulty
+]
       env_etc._enable_more_warnings = "gcc"
     elif (libtbx.env.build_options.warning_level == 1):
       warn_options = gcc_common_warn_options()
