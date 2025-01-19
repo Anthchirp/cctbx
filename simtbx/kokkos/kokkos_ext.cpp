@@ -66,13 +66,14 @@ namespace simtbx { namespace Kokkos {
     }
   };
 
+  template <typename memory_t>
   struct detector_wrapper
   {
     static void
-    wrap()
+    wrap(std::string pyname)
     {
       using namespace boost::python;
-      class_<simtbx::Kokkos::kokkos_detector>("gpu_detector",init<>() )
+      class_<simtbx::Kokkos::kokkos_detector<memory_t> >(pyname.c_str(),init<>() )
         .def(init<int const&, const simtbx::nanoBragg::nanoBragg&>(
             ( arg("deviceId")=-1,arg("nanoBragg")),
              "Single panel constructor with data taken from nanoBragg instance\n"
@@ -83,21 +84,21 @@ namespace simtbx { namespace Kokkos {
              "Multipanel constructor with data taken from dxtbx objects\n"
              "deviceId is completely optional and ignored for Kokkos, rather\n"
              "the device is set by the gpu_instance class."))
-        .def("show_summary",&simtbx::Kokkos::kokkos_detector::show_summary)
+        .def("show_summary",&simtbx::Kokkos::kokkos_detector<memory_t>::show_summary)
         .def("each_image_allocate",
-              &simtbx::Kokkos::kokkos_detector::each_image_allocate,
+              &simtbx::Kokkos::kokkos_detector<memory_t>::each_image_allocate,
+              ( arg_("n_pixels")=0 ),
              "Allocate large pixel arrays")
-        .def("scale_in_place", &simtbx::Kokkos::kokkos_detector::scale_in_place,
+        .def("scale_in_place", &simtbx::Kokkos::kokkos_detector<memory_t>::scale_in_place,
              "Multiply by a scale factor on the GPU")
-        .def("write_raw_pixels",&simtbx::Kokkos::kokkos_detector::write_raw_pixels,
+        .def("write_raw_pixels",&simtbx::Kokkos::kokkos_detector<memory_t>::write_raw_pixels,
              "Update raw_pixels on host with array from GPU")
-        .def("get_raw_pixels",&simtbx::Kokkos::kokkos_detector::get_raw_pixels,
+        .def("get_raw_pixels",&simtbx::Kokkos::kokkos_detector<memory_t>::get_raw_pixels,
              "return multipanel detector raw pixels as a flex array")
         .def("get_whitelist_raw_pixels",
-             (af::shared<double> (simtbx::Kokkos::kokkos_detector::*)(af::shared<std::size_t>))
-             &simtbx::Kokkos::kokkos_detector::get_whitelist_raw_pixels,
+             &simtbx::Kokkos::kokkos_detector<memory_t>::get_whitelist_raw_pixels,
             "return only those raw pixels requested by the whitelist selection, as a 1D flex array")
-        .def("each_image_free", &simtbx::Kokkos::kokkos_detector::each_image_free)
+        .def("each_image_free", &simtbx::Kokkos::kokkos_detector<memory_t>::each_image_free)
         ;
     }
   };
@@ -127,7 +128,63 @@ namespace simtbx { namespace Kokkos {
     }
   };
 
+  template <typename memory_t>
   struct simulation_wrapper
+  {
+    static void
+    wrap(std::string pyname)
+    {
+      using namespace boost::python;
+      typedef return_value_policy<return_by_value> rbv;
+      typedef default_call_policies dcp;
+      using namespace simtbx::Kokkos;
+      class_<simtbx::Kokkos::exascale_api<memory_t> >(pyname.c_str(),no_init )
+        .def(init<const simtbx::nanoBragg::nanoBragg&>(
+            ( arg("nanoBragg"))))
+        .def("allocate",&simtbx::Kokkos::exascale_api<memory_t>::allocate,
+             "Allocate and transfer input data on the GPU")
+        .def("add_energy_channel_from_gpu_amplitudes",
+             &simtbx::Kokkos::exascale_api<memory_t>::add_energy_channel_from_gpu_amplitudes,
+             (arg_("channel_number"), arg_("gpu_amplitudes"), arg_("gpu_detector"), arg_("weight")=1.0),
+             "Point to Fhkl at a new energy channel on the GPU, and accumulate Bragg spot contributions to the detector's accumulator array")
+        .def("add_energy_channel_mask_allpanel",
+             static_cast<void (exascale_api<memory_t>::*)(int const&,kokkos_energy_channels&,kokkos_detector<memory_t>&, af::shared<bool>) >
+             (&exascale_api<memory_t>::add_energy_channel_mask_allpanel),
+             (arg_("channel_number"), arg_("gpu_amplitudes"), arg_("gpu_detector"), arg_("pixel_active_mask_bools")),
+             "Point to Fhkl at a new energy channel on the GPU, and accumulate Bragg spots on mask==True pixels\n"
+             "The pixel_active_mask_bools is a large array with one bool per detector pixel")
+        .def("add_energy_channel_mask_allpanel",
+             static_cast<void (exascale_api<memory_t>::*)(int const&,kokkos_energy_channels&,kokkos_detector<memory_t>&, af::shared<std::size_t> const) >
+             (&exascale_api<memory_t>::add_energy_channel_mask_allpanel),
+             (arg_("channel_number"), arg_("gpu_amplitudes"), arg_("gpu_detector"), arg_("pixel_active_list_ints")),
+             "Point to Fhkl at a new energy channel on the GPU, and accumulate Bragg spots on mask==True pixels\n"
+             "The pixel_active_list_ints is a small array with integer-offset addresses for each pixel-of-interest")
+        .def("add_energy_multichannel_mask_allpanel",
+             static_cast<void (exascale_api<memory_t>::*)(af::shared<int> const,kokkos_energy_channels&,kokkos_detector<memory_t>&, af::shared<std::size_t> const,
+             af::shared<double> const) >
+             (&exascale_api<memory_t>::add_energy_multichannel_mask_allpanel),
+             (arg_("ichannels"), arg_("gpu_amplitudes"), arg_("gpu_detector"), arg_("pixel_active_list_ints"), arg_("weights")),
+             "Point to Fhkl at a new energy channel on the GPU, and accumulate Bragg spots on mask==True pixels\n"
+             "The pixel_active_list_ints is a small array with integer-offset addresses for each pixel-of-interest"
+             "ichannels: for each nanoBragg source, the value instructs the simulation which channel in gpu_structure_factors"
+             "to use for structure factor lookup.  If -1, skip this source wavelength."
+             )
+        .def("add_background", &simtbx::Kokkos::exascale_api<memory_t>::add_background,
+             (arg_("detector"), arg_("override_source")=-1),
+             "Add a background field directly on the GPU")
+        .def("add_noise", &simtbx::Kokkos::exascale_api<memory_t>::add_noise,
+             (arg_("detector")),
+             "Modify pixels with noise on CPU. Unusual pattern, returns pixels directly instead of saving persistent")
+        .def("show",&simtbx::Kokkos::exascale_api<memory_t>::show)
+        .add_property("diffuse",
+             make_getter(&simtbx::Kokkos::exascale_api<memory_t>::diffuse,rbv()),
+             make_setter(&simtbx::Kokkos::exascale_api<memory_t>::diffuse,dcp()),
+             "the diffuse parameters for the simulation.")
+        ;
+    }
+  };
+
+  struct diffuse_wrapper
   {
     static void
     wrap()
@@ -135,51 +192,6 @@ namespace simtbx { namespace Kokkos {
       using namespace boost::python;
       typedef return_value_policy<return_by_value> rbv;
       typedef default_call_policies dcp;
-      using namespace simtbx::Kokkos;
-      class_<simtbx::Kokkos::exascale_api>("exascale_api",no_init )
-        .def(init<const simtbx::nanoBragg::nanoBragg&>(
-            ( arg("nanoBragg"))))
-        .def("allocate",&simtbx::Kokkos::exascale_api::allocate,
-             "Allocate and transfer input data on the GPU")
-        .def("add_energy_channel_from_gpu_amplitudes",
-             &simtbx::Kokkos::exascale_api::add_energy_channel_from_gpu_amplitudes,
-             (arg_("channel_number"), arg_("gpu_amplitudes"), arg_("gpu_detector"), arg_("weight")=1.0),
-             "Point to Fhkl at a new energy channel on the GPU, and accumulate Bragg spot contributions to the detector's accumulator array")
-        .def("add_energy_channel_mask_allpanel",
-             static_cast<void (exascale_api::*)(int const&,kokkos_energy_channels&,kokkos_detector&, af::shared<bool>) >
-             (&exascale_api::add_energy_channel_mask_allpanel),
-             (arg_("channel_number"), arg_("gpu_amplitudes"), arg_("gpu_detector"), arg_("pixel_active_mask_bools")),
-             "Point to Fhkl at a new energy channel on the GPU, and accumulate Bragg spots on mask==True pixels\n"
-             "The pixel_active_mask_bools is a large array with one bool per detector pixel")
-        .def("add_energy_channel_mask_allpanel",
-             static_cast<void (exascale_api::*)(int const&,kokkos_energy_channels&,kokkos_detector&, af::shared<std::size_t> const) >
-             (&exascale_api::add_energy_channel_mask_allpanel),
-             (arg_("channel_number"), arg_("gpu_amplitudes"), arg_("gpu_detector"), arg_("pixel_active_list_ints")),
-             "Point to Fhkl at a new energy channel on the GPU, and accumulate Bragg spots on mask==True pixels\n"
-             "The pixel_active_list_ints is a small array with integer-offset addresses for each pixel-of-interest")
-        .def("add_energy_multichannel_mask_allpanel",
-             static_cast<void (exascale_api::*)(af::shared<int> const,kokkos_energy_channels&,kokkos_detector&, af::shared<std::size_t> const,
-             af::shared<double> const) >
-             (&exascale_api::add_energy_multichannel_mask_allpanel),
-             (arg_("ichannels"), arg_("gpu_amplitudes"), arg_("gpu_detector"), arg_("pixel_active_list_ints"), arg_("weights")),
-             "Point to Fhkl at a new energy channel on the GPU, and accumulate Bragg spots on mask==True pixels\n"
-             "The pixel_active_list_ints is a small array with integer-offset addresses for each pixel-of-interest"
-             "ichannels: for each nanoBragg source, the value instructs the simulation which channel in gpu_structure_factors"
-             "to use for structure factor lookup.  If -1, skip this source wavelength."
-             )
-        .def("add_background", &simtbx::Kokkos::exascale_api::add_background,
-             (arg_("detector"), arg_("override_source")=-1),
-             "Add a background field directly on the GPU")
-        .def("add_noise", &simtbx::Kokkos::exascale_api::add_noise,
-             (arg_("detector")),
-             "Modify pixels with noise on CPU. Unusual pattern, returns pixels directly instead of saving persistent")
-        .def("show",&simtbx::Kokkos::exascale_api::show)
-        .add_property("diffuse",
-             make_getter(&simtbx::Kokkos::exascale_api::diffuse,rbv()),
-             make_setter(&simtbx::Kokkos::exascale_api::diffuse,dcp()),
-             "the diffuse parameters for the simulation.")
-        ;
-
       class_<simtbx::Kokkos::diffuse_api>("diffuse_api",no_init )
         .def(init<>())
         .add_property("enable",
@@ -220,7 +232,10 @@ namespace simtbx { namespace Kokkos {
   BOOST_PYTHON_MODULE(simtbx_kokkos_ext) {
     simtbx::Kokkos::kokkos_instance_wrapper::wrap();
     simtbx::Kokkos::structure_factor_wrapper::wrap();
-    simtbx::Kokkos::detector_wrapper::wrap();
-    simtbx::Kokkos::simulation_wrapper::wrap();
+    simtbx::Kokkos::detector_wrapper<simtbx::Kokkos::large_array_policy>::wrap("gpu_detector");
+    simtbx::Kokkos::detector_wrapper<simtbx::Kokkos::small_whitelist_policy>::wrap("gpu_detector_small_whitelist");
+    simtbx::Kokkos::simulation_wrapper<simtbx::Kokkos::large_array_policy>::wrap("exascale_api");
+    simtbx::Kokkos::simulation_wrapper<simtbx::Kokkos::small_whitelist_policy>::wrap("exascale_api_small_whitelist");
+    simtbx::Kokkos::diffuse_wrapper::wrap();
   }
 } // namespace simtbx
