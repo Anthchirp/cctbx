@@ -2,6 +2,7 @@ from __future__ import absolute_import, division, print_function
 import numpy as np
 from six.moves import range
 from dials.array_family import flex
+import hashlib
 import math
 from simtbx.diffBragg.utils import is_outlier
 
@@ -27,16 +28,30 @@ class reflection_table_utils(object):
     yield reflections[i_begin:i+1]
 
   @staticmethod
+  def is_even(identifier):
+    return ord(hashlib.md5(identifier.encode()).hexdigest()[-1]) % 2 == 0
+
+  @staticmethod
   def select_odd_experiment_reflections(reflections, col='id'):
-    'Select reflections from experiments with odd ids.'
-    sel = reflections[col] % 2 == 1
+    'Select reflections from experiments with odd identifiers.'
+    id_map = reflections.experiment_identifiers()
+    reverse_map = {id_map[id_]: id_ for id_ in id_map.keys()}
+    sel = flex.bool(len(reflections), False)
+    for identifier in reverse_map:
+      if not reflection_table_utils.is_even(identifier):
+        sel |= reflections[col] == reverse_map[identifier]
     reflections["is_odd_experiment"] = sel  # store this for later use, NOTE this is un-prunable if expanded_bookkeeping=True
     return reflections.select(sel)
 
   @staticmethod
   def select_even_experiment_reflections(reflections, col='id'):
-    'Select reflections from experiments with even ids'
-    sel = reflections[col] % 2 == 0
+    'Select reflections from experiments with even identifiers'
+    id_map = reflections.experiment_identifiers()
+    reverse_map = {id_map[id_]: id_ for id_ in id_map.keys()}
+    sel = flex.bool(len(reflections), False)
+    for identifier in reverse_map:
+      if reflection_table_utils.is_even(identifier):
+        sel |= reflections[col] == reverse_map[identifier]
     return reflections.select(sel)
 
   @staticmethod
