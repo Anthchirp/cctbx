@@ -1147,8 +1147,8 @@ template <typename FloatType, typename ComplexType>
    MMTBX_ASSERT(f_obs.size() == f_calc.size());
    MMTBX_ASSERT(f_obs.size() == selection.size());
    FloatType k_mask_best = 0.0;
-   FloatType k_overall_best = 1.0;
-   FloatType r_best = r_factor(f_obs, f_calc);
+   FloatType k_overall_best = scale(f_obs, f_calc, selection);
+   FloatType r_best = r_factor(f_obs, f_calc, selection, k_overall_best);
    af::shared<ComplexType> f_model(f_obs.size());
    for(std::size_t i=0; i < k_mask_range.size(); i++) {
      FloatType k_mask = k_mask_range[i];
@@ -1157,7 +1157,7 @@ template <typename FloatType, typename ComplexType>
          f_model[j] = f_calc[j] + k_mask * f_mask[j];
        }
      }
-     FloatType k_overall = scale(f_obs, f_model.const_ref());
+     FloatType k_overall = scale(f_obs, f_model.const_ref(), selection);
      FloatType r = r_factor(f_obs, f_model.const_ref(), selection, k_overall);
      if(r < r_best) {
        k_mask_best = k_mask;
