@@ -324,6 +324,7 @@ class error_modifier_mm24(worker):
     comm = self.mpi_helper.comm
     MPI = self.mpi_helper.MPI
     size = self.mpi_helper.size
+    
 
     if self.params.merging.error.mm24.tuning_param_opt:
       param_shift = 1
@@ -819,41 +820,29 @@ class error_modifier_mm24(worker):
       cc_all = self.mpi_helper.gather_variable_length_numpy_arrays(
           np.unique(self.work_table['correlation_i'].as_numpy_array()), root=0, dtype=float
           )
-    else:
-      if self.params.merging.error.mm24.cc_after_pr:
-        correlations = reflections['correlation_after_post']
-      else:
-        correlations = reflections['correlation']
-      cc_all = self.mpi_helper.gather_variable_length_numpy_arrays(
-          np.unique(correlations.as_numpy_array()), root=0, dtype=float
-          )
-    if self.mpi_helper.rank == 0:
-      # CC & sadd plots #
-      bins = np.linspace(cc_all.min(), cc_all.max(), 101)
-      dbin = bins[1] - bins[0]
-      centers = (bins[1:] + bins[:-1]) / 2
-      hist_all, _ = np.histogram(cc_all, bins=bins)
+      if self.mpi_helper.rank == 0:
+        # CC & sadd plots #
+        bins = np.linspace(cc_all.min(), cc_all.max(), 101)
+        dbin = bins[1] - bins[0]
+        centers = (bins[1:] + bins[:-1]) / 2
+        hist_all, _ = np.histogram(cc_all, bins=bins)
 
-      hist_color = np.array([0, 49, 60]) / 256
-      line_color = np.array([213, 120, 0]) / 256
-      fig, axes_hist = plt.subplots(1, 1, figsize=(5, 3))
-      axes_sadd = axes_hist.twinx()
-      axes_hist.bar(centers, hist_all / 1000, width=dbin, color=hist_color)
-      if self.cc_key:
+        hist_color = np.array([0, 49, 60]) / 256
+        line_color = np.array([213, 120, 0]) / 256
         sadd2, _ = self._get_sadd2(flex.double(centers))
+        fig, axes_hist = plt.subplots(1, 1, figsize=(5, 3))
+        axes_sadd = axes_hist.twinx()
+        axes_hist.bar(centers, hist_all / 1000, width=dbin, color=hist_color)
         axes_sadd.plot(centers, self.sfac**2 * sadd2, color=line_color)
-      else:
-        sadd2, _ = self._get_sadd2(None)
-        axes_sadd.plot([centers[0], centers[-1]], self.sfac**2 * sadd2 *np.ones(2), color=line_color)
-      axes_hist.set_xlabel('Correlation Coefficient')
-      axes_hist.set_ylabel('Lattices (x1,000)')
-      axes_sadd.set_ylabel('$s_{\mathrm{fac}}^2 \\times s_{\mathrm{add}}^2$')
-      fig.tight_layout()
-      fig.savefig(os.path.join(
-        self.params.output.output_dir,
-        self.params.output.prefix + '_sadd.png'
-        ))
-      plt.close()
+        axes_hist.set_xlabel('Correlation Coefficient')
+        axes_hist.set_ylabel('Lattices (x1,000)')
+        axes_sadd.set_ylabel('$s_{\mathrm{fac}}^2 \\times s_{\mathrm{add}}^2$')
+        fig.tight_layout()
+        fig.savefig(os.path.join(
+          self.params.output.output_dir,
+          self.params.output.prefix + '_sadd.png'
+          ))
+        plt.close()
 
 if __name__ == '__main__':
   from xfel.merging.application.worker import exercise_worker
