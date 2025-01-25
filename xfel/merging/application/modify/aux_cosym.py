@@ -6,7 +6,7 @@ from cctbx import sgtbx, miller
 from libtbx import easy_mp, Auto
 from scipy import sparse
 import numpy as np
-from orderedset import OrderedSet
+from ordered_set import OrderedSet
 import copy
 
 # Specialization, run only a subset of cosym steps and include plot

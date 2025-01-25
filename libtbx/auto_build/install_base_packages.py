@@ -280,7 +280,7 @@ class installer(object):
     if options.dials:
       options.build_gui = True
       options.build_all = True
-      packages += ['pillow', 'jinja2', 'orderedset', 'scipy', 'scikit_learn', 'tqdm', 'msgpack']
+      packages += ['pillow', 'jinja2', 'ordered_set', 'scipy', 'scikit_learn', 'tqdm', 'msgpack']
     if options.xia2:
       options.build_gui = True
       options.build_all = True
@@ -727,7 +727,7 @@ Installation of Python packages may fail.
       'misc',
       'lz4_plugin',
       'jinja2',
-      'orderedset',
+      'ordered_set',
       'tqdm',
       'tabulate',
       'psutil',
@@ -1165,8 +1165,8 @@ _replace_sysconfig_paths(build_time_vars)
 
   def build_orderedset(self):
     self.build_python_module_pip(
-      'orderedset', package_version=ORDEREDSET_VERSION,
-      confirm_import_module='orderedset')
+      'ordered_set', package_version=ORDEREDSET_VERSION,
+      confirm_import_module='ordered_set')
 
   def build_tqdm(self):
     self.build_python_module_pip('tqdm', package_version=TQDM_VERSION)
