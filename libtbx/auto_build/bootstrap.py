@@ -748,7 +748,7 @@ class afitt_class(SourceModule):
 
 class molstar_module(SourceModule):
   module = 'molstar'
-  anonymous = ['git','-b 4.11',
+  anonymous = ['git','-b v4.11.0',
                'git@github.com:molstar/molstar.git',
                'https://github.com/molstar/molstar.git',
                ]
@@ -2062,7 +2062,7 @@ class MOLPROBITYBuilder(Builder):
     'molprobity',
     'chem_data',
     'reduce',
-    'probe'
+    'probe',
   ]
   # Copy these sources from cci.lbl.gov
   HOT = [
