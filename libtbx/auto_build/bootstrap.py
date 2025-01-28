@@ -745,6 +745,23 @@ class afitt_class(SourceModule):
     'scp',
     '%(cciuser)s@boa.lbl.gov:/net/cci-filer2/raid1/auto_build/externals/'+afitt_version+'.gz']
 
+
+class molstar_module(SourceModule):
+  module = 'molstar'
+  anonymous = ['git','-b 4.11',
+               'git@github.com:molstar/molstar.git',
+               'https://github.com/molstar/molstar.git',
+               ]
+
+class molstar_adaptbx_module(SourceModule):
+  module = 'molstar_adaptbx'
+  anonymous = ['git',
+               'git@github.com:phenix-project/molstar_adaptbx.git',
+               'https://github.com/phenix-project/molstar_adaptbx.git',
+               ]
+
+
+
 # Core CCTBX repositories
 # These must all provide anonymous access.
 class cctbx_module(SourceModule):
@@ -2413,6 +2430,8 @@ class PhenixBuilder(CCIBuilder):
     'phaser_regression',
     'voyager_regression',
     'phaser_voyager',
+    'molstar_adaptbx',
+    'molstar',
     # 'dials',
     # 'xia2',
     # 'iota',
@@ -2440,6 +2459,8 @@ class PhenixBuilder(CCIBuilder):
     'probe',
     'cootbx',
     'qttbx',
+    'molstar_adaptbx',
+    'molstar',
     # 'dials',
     # 'xia2',
     # 'prime',
