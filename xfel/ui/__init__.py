@@ -52,6 +52,14 @@ facility {
       .help = Write images to disk whether they index or not. \
               Helpful for tuning spotfinding and indexing parameters, and necessary \
               for the "Should have indexed" feature of the Run Stats tab.
+    api {
+      protocol = http *https
+        .type = choice
+        .help = Use http or https for API connections
+      host = pswww.slac.stanford.edu
+        .type = str
+        .help = Address of the LCLS API Host
+    }
   }
   standalone {
     data_dir = None
